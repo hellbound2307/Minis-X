@@ -9318,6 +9318,15 @@ class ChatViewModel(
                 sessionId = activeSessionId,
                 context = context,
             )
+            // [T-android-plugin-kernel] Runtime plugin management. Install is
+            // suspend (hook runs in the session shell); the rest are local.
+            "plugin_install" -> com.openminis.app.plugins.PluginTools.executeInstall(
+                argsJson = argsJson,
+                sessionId = activeSessionId,
+            )
+            "plugin_list" -> com.openminis.app.plugins.PluginTools.execute("plugin_list", argsJson)
+            "plugin_uninstall" -> com.openminis.app.plugins.PluginTools.execute("plugin_uninstall", argsJson)
+            "plugin_manifest_schema" -> com.openminis.app.plugins.PluginTools.execute("plugin_manifest_schema", argsJson)
             else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }
@@ -10259,7 +10268,8 @@ class ChatViewModel(
 - lan_share: Serve a /var/minis/** directory over the local network (python3 http.server as a background job); returns http://<phone-ip>:<port>/ URLs for other devices.
 - web_fetch: Fetch a URL and return its main content as clean readable text (markdown-ish). Much faster than browser_use for reading articles/docs. raw_html=true for markup. NOT for JS-heavy or login-required pages (use browser_use).
 - web_search: Search the web, ranked results. Provider auto-picks: Brave (BRAVE_API_KEY env var) → Serper (SERPER_API_KEY) → keyless DuckDuckGo fallback — works with NO key configured. Follow up with web_fetch.
-- ocr_read: Extract text from an image fully offline (bundled ML Kit). Same paths as read_image. Prefer over read_image when you only need the text."""
+- ocr_read: Extract text from an image fully offline (bundled ML Kit). Same paths as read_image. Prefer over read_image when you only need the text.
+- plugin_install: Install a PLUGIN from a manifest JSON — adds NEW agent-callable tools at runtime with NO app update. Pipeline: author manifest + server script in /var/minis/workspace (file_write) → plugin_manifest_schema to check the format → plugin_install (validates strictly, runs the install hook in the sandbox, registers MCP servers via minis-mcp-cli). Permissions are recorded and audited; plugin_uninstall reverses. Use to close capability gaps yourself — declare only the permissions the plugin needs."""
         val memorySystemSection = if (memoryOn) {            """
 
 Memory system (currently ENABLED):

@@ -61,6 +61,8 @@ object AgentTools {
         add(webSearchDefinition())
         // [T-android-ocr-tool] Local text extraction from images.
         add(com.openminis.app.tools.ocr.OcrTool.definition())
+        // [T-android-plugin-kernel] Runtime plugin install/list/uninstall.
+        com.openminis.app.plugins.PluginTools.definitions().forEach { add(it) }
     }
 
     // Aligned with iOS AIChatViewModel.swift:4982-4993

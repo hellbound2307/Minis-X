@@ -474,6 +474,13 @@ class MinisApp : Application(), ImageLoaderFactory {
         // Initialize models.dev registry (loads from bundled asset, refreshes in background)
         ModelsDevApi.init(this)
 
+        // [T-android-plugin-kernel] Plugin runtime — must init AFTER
+        // MCPRepository (plugins register their MCP servers through it).
+        com.openminis.app.plugins.PluginManager.init(
+            context = this,
+            mcpRepository = mcpRepository,
+        )
+
         // Initialize sandbox singletons (does not trigger extraction)
         RootfsManager.getInstance(this)
         ExecutionCoordinator.init(this)
