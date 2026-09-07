@@ -60,6 +60,9 @@ object PluginManager {
     private fun ctx(): Context = appContext
         ?: throw IllegalStateException("PluginManager not initialized (called before MinisApp.onCreate)")
 
+    /** App context for tool callers (PluginTools) after init. */
+    fun context(): Context = ctx()
+
     fun list(): List<PluginRegistry.InstalledPlugin> = cache.toList()
 
     fun get(id: String): PluginRegistry.InstalledPlugin? = cache.firstOrNull { it.manifest.id == id }

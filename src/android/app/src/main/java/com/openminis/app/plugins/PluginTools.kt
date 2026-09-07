@@ -142,8 +142,9 @@ object PluginTools {
     private fun resolveManifestText(raw: String, sessionId: String): String {
         if (raw.trimStart().startsWith("{")) return raw
         val sandboxPath = raw.removePrefix("minis://")
+        val appContext = PluginManager.context()
         val hostFile = com.openminis.app.sandbox.PRootKernel.resolveSessionHostPath(
-            sessionId, sandboxPath, com.openminis.app.MinisAppHolder.appContext(),
+            sessionId, sandboxPath, appContext,
         ) ?: com.openminis.app.sandbox.PRootKernel.resolveHostPath(sandboxPath)
             ?: throw IllegalArgumentException("Manifest file not found: $raw")
         return hostFile.readText()
