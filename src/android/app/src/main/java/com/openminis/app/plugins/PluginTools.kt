@@ -237,7 +237,7 @@ object PluginTools {
         return hostFile.readText()
     }
 
-    private const val MANIFEST_SCHEMA_DOC = """Plugin manifest schema (JSON):
+    private val MANIFEST_SCHEMA_DOC = """Plugin manifest schema (JSON):
 
 {
   "id": "my-plugin",              // required: 2-40 chars [a-z0-9_-], unique
@@ -255,14 +255,14 @@ object PluginTools {
   },
   "payload": [                              // optional; files/dirs copied APP-SIDE
     "/var/minis/workspace/my_plugin"        // at install — survive sandbox resets;
-  ],                                        // referenced as "$PAYLOAD" in args/env
+  ],                                        // referenced as "${'$'}PAYLOAD" in args/env
   "source": "https://raw.githubusercontent.com/you/repo/main/plugin.json",  // optional;
                                             // enables plugin_reinstall + provenance
   "mcpServers": [                  // 1+ servers; these become agent tools
     {
       "command": "python3",
-      "args": ["$PAYLOAD/server.py"],
-      "env": {"PLUGIN_DATA": "$PAYLOAD"},
+      "args": ["${'$'}PAYLOAD/server.py"],
+      "env": {"PLUGIN_DATA": "${'$'}PAYLOAD"},
       "label": "main"
     }
   ]
@@ -271,7 +271,7 @@ object PluginTools {
 Rules:
 - id must match [a-z0-9][a-z0-9_-]{1,39}; filesystem scopes are a fixed enum.
 - Unknown permission kinds are REJECTED (strict, not ignored).
-- "$PAYLOAD" in args/env is rewritten to /var/minis/plugins/<id> (app-side,
+- "${'$'}PAYLOAD" in args/env is rewritten to /var/minis/plugins/<id> (app-side,
   reset-proof mount).
 - Plugin server processes run with a SCRUBBED environment: only PATH, HOME,
   TMPDIR, LANG, PYTHONUNBUFFERED, MINIS_PLUGIN_ID, MINIS_PLUGIN_VERSION —
