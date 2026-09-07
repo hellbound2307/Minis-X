@@ -245,7 +245,7 @@ object PluginManager {
             }
 
             // MCP entries present?
-            val missingMcp = p.mcpServerIds.filter { repo?.get(it) == null }
+            val missingMcp = p.mcpServerIds.filter { mcp?.get(it) == null }
             if (missingMcp.isNotEmpty()) {
                 issues.add("MCP entries missing: ${missingMcp.joinToString(",")}")
                 // Re-register from the stored manifest.
