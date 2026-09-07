@@ -89,6 +89,8 @@ class PluginRegistry(private val context: Context) {
         if (m.installHook != null) hooks.put("install", m.installHook)
         root.put("hooks", hooks)
         root.put("mcpServers", servers)
+        if (m.payload.isNotEmpty()) root.put("payload", JSONArray(m.payload))
+        if (m.sourceUrl != null) root.put("source", m.sourceUrl)
         return root
     }
 }

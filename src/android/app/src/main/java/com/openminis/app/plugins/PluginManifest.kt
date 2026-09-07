@@ -58,6 +58,19 @@ data class PluginManifest(
     val installHook: String?,
     /** MCP server entries registered under `plugins/<id>/<n>`. */
     val mcpServers: List<McpServerSpec>,
+    /**
+     * Plugin payload files/dirs (relative sandbox paths, usually under
+     * /var/minis/workspace) copied APP-SIDE at install so they survive rootfs
+     * resets. Referenced in args/env as the literal "$PAYLOAD" placeholder,
+     * rewritten at install to /var/minis/plugins/<id> (the app-side dir is
+     * bind-mounted into every session at that path).
+     */
+    val payload: List<String>,
+    /**
+     * Where the plugin came from (https URL to the manifest). Enables
+     * plugin_reinstall after a payload wipe and provenance display.
+     */
+    val sourceUrl: String?,
 ) {
 
     data class McpServerSpec(
@@ -96,6 +109,9 @@ data class PluginManifest(
             val hooks = root.optJSONObject("hooks")
             val installHook = hooks?.optString("install", null)?.trim()?.ifBlank { null }
 
+            val payload = root.optJSONArray("payload")?.toStringList() ?: emptyList()
+            val sourceUrl = root.optString("source", null)?.trim()?.ifBlank { null }
+
             val servers = ArrayList<McpServerSpec>()
             val serverArr = root.optJSONArray("mcpServers") ?: JSONArray()
             for (i in 0 until serverArr.length()) {
@@ -126,6 +142,8 @@ data class PluginManifest(
                 shell = shell || servers.isNotEmpty(),
                 installHook = installHook,
                 mcpServers = servers,
+                payload = payload,
+                sourceUrl = sourceUrl,
             )
         }
 

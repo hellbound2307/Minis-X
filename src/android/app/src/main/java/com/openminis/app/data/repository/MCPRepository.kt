@@ -275,6 +275,8 @@ class MCPRepository(private val context: Context) {
     // -- CRUD --
 
     /** Add or overwrite a server (rename/overwrite is last-write-wins by id). */
+    fun get(id: String): MCPServerConfig? = _servers.value.firstOrNull { it.id == id }
+
     fun add(server: MCPServerConfig): Boolean {
         if (server.id.isBlank()) return false
         _servers.value = _servers.value.filter { it.id != server.id } + server

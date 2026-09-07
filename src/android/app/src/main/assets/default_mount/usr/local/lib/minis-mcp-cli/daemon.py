@@ -71,6 +71,18 @@ class MCPServerProcess:
         env = dict(os.environ)
         for k, v in (self.cfg.get("env") or {}).items():
             env[k] = expand_env(v)
+        # [T-plugin-env-scrub] Plugin-spawned servers (id "plugins/<pid>/<n>",
+        # note tagged "plugin:") get a MINIMAL environment instead of the full
+        # inherited one — the app already scops PATH + MINIS_PLUGIN_* in
+        # servers.json, but here we also strip everything secret the host
+        # session happened to carry (API keys, tokens, session env vars).
+        # Non-plugin servers keep the legacy full-env behavior.
+        if self.name.startswith("plugins/") or str(self.cfg.get("note", "")).startswith("plugin:"):
+            allowed = {
+                "PATH", "HOME", "TMPDIR", "LANG", "PYTHONUNBUFFERED",
+                "MINIS_PLUGIN_ID", "MINIS_PLUGIN_VERSION",
+            }
+            env = {k: v for k, v in env.items() if k in allowed}
         deps.ensure_command(command)
         try:
             self.proc = subprocess.Popen(

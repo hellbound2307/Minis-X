@@ -9327,6 +9327,10 @@ class ChatViewModel(
             "plugin_list" -> com.openminis.app.plugins.PluginTools.execute("plugin_list", argsJson)
             "plugin_uninstall" -> com.openminis.app.plugins.PluginTools.execute("plugin_uninstall", argsJson)
             "plugin_manifest_schema" -> com.openminis.app.plugins.PluginTools.execute("plugin_manifest_schema", argsJson)
+            "plugin_doctor", "plugin_reinstall", "plugin_enable" -> {
+                com.openminis.app.plugins.PluginTools.currentSessionId.set(activeSessionId)
+                com.openminis.app.plugins.PluginTools.execute(name, argsJson)
+            }
             else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }

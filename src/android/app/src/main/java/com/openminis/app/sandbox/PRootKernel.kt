@@ -197,6 +197,13 @@ object PRootKernel {
             val hostDir = File(globalBase, subdir).also { it.mkdirs() }
             bindMounts["/var/minis/$subdir"] = hostDir.absolutePath
         }
+        // [T-plugin-payload-persistence] Plugin payloads are APP-SIDE
+        // (minis-global/plugins/payloads/<id>) so they survive rootfs resets;
+        // bind the parent into every session at /var/minis/plugins. The dir
+        // holds only plugin-owned files — declared in manifests, written by
+        // PluginManager at install, never by sessions directly.
+        File(globalBase, "plugins/payloads").mkdirs()
+        bindMounts["/var/minis/plugins"] = File(globalBase, "plugins/payloads").absolutePath
     }
 
     fun removeBindMount(linuxPath: String) {
