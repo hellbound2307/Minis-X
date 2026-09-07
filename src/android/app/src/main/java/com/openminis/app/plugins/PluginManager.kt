@@ -289,6 +289,44 @@ object PluginManager {
         return DoctorReport(plugins.size, lines, "$healthy/${plugins.size} plugin(s) healthy")
     }
 
+    fun reinstallFromRegistry(id: String): InstallResult {
+        val reg = registry ?: return InstallResult(false, "Plugin kernel not initialized")
+        val repo = mcp ?: return InstallResult(false, "MCP repository not initialized")
+        val context = ctx()
+        val p = get(id) ?: return InstallResult(false, "Plugin not found: $id")
+        val m = p.manifest
+
+        // Remove stale MCP entries + policy, then re-register from the stored
+        // manifest. Payload is NOT touched (it lives app-side and survives).
+        for (mcpId in p.mcpServerIds) runCatching { repo.delete(mcpId) }
+        writePolicyFile(context, m)
+
+        val guestPayloadDir = "$GUEST_PAYLOAD_BASE/$id"
+        val mcpIds = ArrayList<String>()
+        m.mcpServers.forEachIndexed { i, spec ->
+            val mcpId = "$MCP_ID_PREFIX$id/$i"
+            repo.add(
+                MCPRepository.MCPServerConfig(
+                    id = mcpId,
+                    note = "plugin:$id v${m.version} — ${m.name} (repaired from registry)",
+                    enabled = true,
+                    command = spec.command,
+                    args = spec.args.map { it.replace(PAYLOAD_PLACEHOLDER, guestPayloadDir) },
+                    env = spec.env.mapValues { (_, v) -> v.replace(PAYLOAD_PLACEHOLDER, guestPayloadDir) } +
+                        mapOf("MINIS_PLUGIN_ID" to id, "MINIS_PLUGIN_VERSION" to m.version),
+                ),
+            )
+            mcpIds.add(mcpId)
+        }
+        upsert(reg, p.copy(mcpServerIds = mcpIds, status = "installed", statusDetail = null))
+        AppLogger.info(TAG, "plugin $id repaired from registry ($mcpIds MCP entries)")
+        return InstallResult(
+            true,
+            "Plugin '$id' repaired from registry: ${mcpIds.size} MCP entries re-registered. " +
+                "Run plugin_doctor to confirm health.",
+        )
+    }
+
     data class DoctorReport(val total: Int, val lines: List<String>, val summary: String)
 
     private fun upsert(

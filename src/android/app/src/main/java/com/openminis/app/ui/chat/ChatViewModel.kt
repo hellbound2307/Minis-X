@@ -9331,6 +9331,77 @@ class ChatViewModel(
                 com.openminis.app.plugins.PluginTools.currentSessionId.set(activeSessionId)
                 com.openminis.app.plugins.PluginTools.execute(name, argsJson)
             }
+            "plugin_reinstall_from_registry" -> {
+                val id = try { JSONObject(argsJson).optString("id", "") } catch (_: Exception) { "" }
+                val r = com.openminis.app.plugins.PluginManager.reinstallFromRegistry(id)
+                ToolExecutionResult(r.message, r.success)
+            }
+            // [T-android-event-bus] Rules that wake the agent on events.
+            "event_rule_set" -> {
+                val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }
+                val match = LinkedHashMap<String, String>()
+                a.optJSONObject("match")?.let { mo ->
+                    mo.keys().forEach { k -> match[k] = mo.optString(k, "") }
+                }
+                val rule = com.openminis.app.events.EventBus.setRule(
+                    context = context,
+                    eventType = a.optString("event_type", "custom"),
+                    match = match,
+                    sessionId = a.optString("session_id", activeSessionId).ifBlank { activeSessionId },
+                    prompt = a.optString("prompt", "An event occurred — review the payload and act."),
+                    cooldownSeconds = a.optLong("cooldown_seconds", 60),
+                )
+                ToolExecutionResult("Event rule ${rule.id} set (type=${rule.eventType}, match=${rule.match}).", true)
+            }
+            "event_rule_list" -> {
+                val rules = com.openminis.app.events.EventBus.list(context)
+                if (rules.isEmpty()) ToolExecutionResult("No event rules.", true)
+                else ToolExecutionResult(
+                    rules.joinToString("\n") { r ->
+                        "${r.id} — ${r.eventType} match=${r.match} → session ${r.sessionId.take(8)} " +
+                            (if (r.enabled) "" else "[DISABLED]")
+                    },
+                    true,
+                )
+            }
+            "event_rule_delete" -> {
+                val id = try { JSONObject(argsJson).optString("id", "") } catch (_: Exception) { "" }
+                val ok = com.openminis.app.events.EventBus.deleteRule(context, id)
+                ToolExecutionResult(if (ok) "Rule $id deleted." else "Rule not found: $id", ok)
+            }
+            "event_emit" -> {
+                val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }
+                val payload = LinkedHashMap<String, String>()
+                a.optJSONObject("payload")?.let { po ->
+                    po.keys().forEach { k -> payload[k] = po.optString(k, "") }
+                }
+                ToolExecutionResult(
+                    com.openminis.app.events.EventBus.emit(
+                        context,
+                        com.openminis.app.events.EventBus.Event(
+                            type = a.optString("event_type", "custom"),
+                            payload = payload,
+                        ),
+                    ),
+                    true,
+                )
+            }
+            // [T-android-projects] Persistent workspaces.
+            "project_create" -> {
+                val name = try { JSONObject(argsJson).optString("name", "") } catch (_: Exception) { "" }
+                val r = com.openminis.app.projects.ProjectTools.create(context, name)
+                ToolExecutionResult(r.message, r.success)
+            }
+            "project_list" -> {
+                val r = com.openminis.app.projects.ProjectTools.list(context)
+                ToolExecutionResult(r.message, r.success)
+            }
+            "project_delete" -> {
+                val name = try { JSONObject(argsJson).optString("name", "") } catch (_: Exception) { "" }
+                val r = com.openminis.app.projects.ProjectTools.delete(context, name)
+                ToolExecutionResult(r.message, r.success)
+            }
+            else -> ToolExecutionResult("Unknown tool: $name", false)
             else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }
@@ -10273,7 +10344,10 @@ class ChatViewModel(
 - web_fetch: Fetch a URL and return its main content as clean readable text (markdown-ish). Much faster than browser_use for reading articles/docs. raw_html=true for markup. NOT for JS-heavy or login-required pages (use browser_use).
 - web_search: Search the web, ranked results. Provider auto-picks: Brave (BRAVE_API_KEY env var) → Serper (SERPER_API_KEY) → keyless DuckDuckGo fallback — works with NO key configured. Follow up with web_fetch.
 - ocr_read: Extract text from an image fully offline (bundled ML Kit). Same paths as read_image. Prefer over read_image when you only need the text.
-- plugin_install: Install a PLUGIN from a manifest JSON — adds NEW agent-callable tools at runtime with NO app update. Pipeline: author manifest + server script in /var/minis/workspace (file_write) → plugin_manifest_schema to check the format → plugin_install (validates strictly, runs the install hook in the sandbox, registers MCP servers via minis-mcp-cli). Permissions are recorded and audited; plugin_uninstall reverses. Use to close capability gaps yourself — declare only the permissions the plugin needs."""
+- plugin_install: Install a PLUGIN from a manifest JSON — adds NEW agent-callable tools at runtime with NO app update. Pipeline: author manifest + server script in /var/minis/workspace (file_write) → plugin_manifest_schema to check the format → plugin_install (validates strictly, runs the install hook in the sandbox, registers MCP servers via minis-mcp-cli). Permissions are recorded and audited; plugin_uninstall reverses. Use to close capability gaps yourself — declare only the permissions the plugin needs. Plugin MCP servers run with a SCRUBBED env and, when the manifest declares network hosts, an LD_PRELOAD connect() guard that BLOCKS every non-allowlisted host (violations log 'NETGUARD:BLOCK').
+- plugin_doctor / plugin_reinstall / plugin_reinstall_from_registry / plugin_enable: plugin health-check + repair (MCP re-registration, payload presence), reinstall from URL or stored manifest, and the kill switch (disable = tools vanish next turn).
+- event_rule_set / event_rule_list / event_rule_delete / event_emit: rules that WAKE the agent — a notification from a specific app (or a custom event) dispatches an agent turn into a target session with the payload. Cooldown per rule prevents loops. This is how you build vigilance: 'when WhatsApp from boss → triage', 'when battery low → checkpoint work'.
+- project_create / project_list / project_delete: persistent project workspaces at /var/minis/projects/<name> — survive session ends and sandbox resets, mounted in every session. Long-lived work (repos, datasets) lives here, NOT in the session workspace."""
         val memorySystemSection = if (memoryOn) {            """
 
 Memory system (currently ENABLED):

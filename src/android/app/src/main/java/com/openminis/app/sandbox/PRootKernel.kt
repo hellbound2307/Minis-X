@@ -197,6 +197,11 @@ object PRootKernel {
             val hostDir = File(globalBase, subdir).also { it.mkdirs() }
             bindMounts["/var/minis/$subdir"] = hostDir.absolutePath
         }
+        // [T-android-projects] Persistent project workspaces — survive rootfs
+        // resets AND session ends. Subdirs created on demand via the
+        // project_create tool; the base is mounted into every session.
+        File(globalBase, "projects").mkdirs()
+        bindMounts["/var/minis/projects"] = File(globalBase, "projects").absolutePath
         // [T-plugin-payload-persistence] Plugin payloads are APP-SIDE
         // (minis-global/plugins/payloads/<id>) so they survive rootfs resets;
         // bind the parent into every session at /var/minis/plugins. The dir

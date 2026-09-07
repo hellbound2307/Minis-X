@@ -52,6 +52,14 @@ jobs:
           chmod +x deps/build_proot.sh
           ./deps/build_proot.sh
 
+      - name: Build netguard shim (LD_PRELOAD connect guard)
+        # Vendors minis-netguard.so into default_mount/usr/local/lib/minis/ so
+        # the minis-mcp-cli daemon can arm it for plugin server spawns whose
+        # manifest declares a network allowlist. See deps/build_netguard.sh.
+        run: |
+          chmod +x deps/build_netguard.sh
+          ./deps/build_netguard.sh
+
       - name: Set up Go (for rclone AAR)
         # rclone.aar is a build artifact (like libproot.so): produced from the
         # vendored deps/rclone-mobile gomobile binding via

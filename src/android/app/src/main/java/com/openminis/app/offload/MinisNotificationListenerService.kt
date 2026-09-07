@@ -40,6 +40,20 @@ class MinisNotificationListenerService : NotificationListenerService() {
         // until the listener has actually observed its own post.
         val key = postKey(sbn.packageName, sbn.id)
         postedLatches.remove(key)?.countDown()
+
+        // [T-android-event-bus] Fan out to event rules (non-blocking, cheap:
+        // rule matching is in-memory; agent turns spawn on an IO coroutine
+        // with per-rule cooldowns so notification storms cannot loop).
+        runCatching {
+            val extras = sbn.notification?.extras
+            val title = extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+            val text = extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString().orEmpty()
+            if (title.isNotBlank() || text.isNotBlank()) {
+                com.openminis.app.events.onNotificationPostedEvent(
+                    applicationContext, sbn.packageName, title, text,
+                )
+            }
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {}

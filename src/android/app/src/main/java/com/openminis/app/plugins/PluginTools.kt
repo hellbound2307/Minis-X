@@ -110,6 +110,20 @@ object PluginTools {
             required = listOf("tool_title", "id", "enabled"),
             propertyOrdering = listOf("tool_title", "id", "enabled"),
         ),
+        AgentToolDefinition(
+            name = "${PREFIX}reinstall_from_registry",
+            description = "Repair an installed plugin from its STORED manifest (registry) — " +
+                "re-registers MCP entries and re-copies payload from the app-side payload " +
+                "store when present. Use after doctor reports missing MCP entries or when " +
+                "the daemon lost the plugin's registration. Unlike plugin_reinstall (URL), " +
+                "this needs no network and works for agent-authored plugins.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "id" to AgentToolParam("string", "The plugin id to repair."),
+            ),
+            required = listOf("tool_title", "id"),
+            propertyOrdering = listOf("tool_title", "id"),
+        ),
     )
 
     fun execute(name: String, argsJson: String): ToolExecutionResult {
@@ -157,6 +171,14 @@ object PluginTools {
                 if (id.isBlank()) ToolExecutionResult("Error: 'id' is required", false)
                 else {
                     val r = PluginManager.setEnabled(id, enabled)
+                    ToolExecutionResult(r.message, r.success)
+                }
+            }
+            "${PREFIX}reinstall_from_registry" -> {
+                val id = args.optString("id", "").trim()
+                if (id.isBlank()) ToolExecutionResult("Error: 'id' is required", false)
+                else {
+                    val r = PluginManager.reinstallFromRegistry(id)
                     ToolExecutionResult(r.message, r.success)
                 }
             }

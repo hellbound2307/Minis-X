@@ -77,12 +77,45 @@ class MCPServerProcess:
         # servers.json, but here we also strip everything secret the host
         # session happened to carry (API keys, tokens, session env vars).
         # Non-plugin servers keep the legacy full-env behavior.
+        self.netguard_hosts = None
         if self.name.startswith("plugins/") or str(self.cfg.get("note", "")).startswith("plugin:"):
             allowed = {
                 "PATH", "HOME", "TMPDIR", "LANG", "PYTHONUNBUFFERED",
                 "MINIS_PLUGIN_ID", "MINIS_PLUGIN_VERSION",
             }
             env = {k: v for k, v in env.items() if k in allowed}
+            # [T-plugin-netguard] Read the plugin's declared network allowlist
+            # from plugin-policy.json (written app-side at install) and arm
+            # the LD_PRELOAD connect() guard for this spawn. Missing file or
+            # missing entry => no guard (defensive; policy writer is the app).
+            try:
+                policy_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "..", "..", "..", "..", "..", "..", "mcp-servers", "plugin-policy.json",
+                )
+                # The daemon lives at <rootfs>/usr/local/lib/minis-mcp-cli/daemon.py
+                # and /var/minis/mcp-servers is the SAME dir as
+                # minis-global/mcp-servers (bind mount) — resolve directly.
+                policy_path = "/var/minis/mcp-servers/plugin-policy.json"
+                if os.path.exists(policy_path):
+                    import json as _json
+                    with open(policy_path) as fh:
+                        policy = _json.load(fh)
+                    pid = self.name.split("/")[1] if self.name.startswith("plugins/") else None
+                    if pid and pid in policy:
+                        hosts = policy[pid].get("network") or []
+                        # Only arm the guard when the declaration is explicit —
+                        # an empty list with no key means legacy (unguarded).
+                        if hosts:
+                            env["MINIS_NETGUARD_ALLOW"] = ",".join(hosts)
+                            preload = "/usr/local/lib/minis/netguard.so"
+                            if os.path.exists(preload):
+                                env["LD_PRELOAD"] = preload
+                                self.netguard_hosts = hosts
+                            else:
+                                log.warning("[netguard] shim missing at %s — spawn unguarded", preload)
+            except Exception as exc:  # noqa: BLE001 — policy is advisory, never fatal
+                log.warning("[netguard] policy load failed: %s", exc)
         deps.ensure_command(command)
         try:
             self.proc = subprocess.Popen(

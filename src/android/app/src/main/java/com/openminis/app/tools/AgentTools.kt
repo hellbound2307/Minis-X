@@ -63,7 +63,97 @@ object AgentTools {
         add(com.openminis.app.tools.ocr.OcrTool.definition())
         // [T-android-plugin-kernel] Runtime plugin install/list/uninstall.
         com.openminis.app.plugins.PluginTools.definitions().forEach { add(it) }
+        // [T-android-event-bus] Rules that wake the agent on events.
+        eventRuleSetDefinition().forEach { add(it) }
+        // [T-android-projects] Persistent project workspaces.
+        projectDefinitions().forEach { add(it) }
     }
+
+    // [T-android-event-bus]
+    private fun eventRuleSetDefinition() = listOf(
+        AgentToolDefinition(
+            name = "event_rule_set",
+            description = "Create a rule that wakes the agent when an event fires. " +
+                "Event types: 'notification' (payload: app, title, text — fired by the " +
+                "notification listener for every posted notification) and 'custom' (fired " +
+                "via event_emit). The agent turn is dispatched into the target session " +
+                "with the event payload; cooldown prevents storm loops.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "event_type" to AgentToolParam("string", "Event type: 'notification' or 'custom'.", enumValues = listOf("notification", "custom")),
+                "match" to AgentToolParam("string", "JSON object of field→matcher. Exact match by default; prefix '~' = contains (e.g. {\"app\":\"com.whatsapp\",\"title\":\"~boss\"})."),
+                "session_id" to AgentToolParam("string", "Target session id (a session that exists — use minis-sessions-cli to find one)."),
+                "prompt" to AgentToolParam("string", "Instruction prepended to the event payload (what the agent should do when it fires)."),
+                "cooldown_seconds" to AgentToolParam("integer", "Minimum seconds between dispatches of this rule (default 60)."),
+            ),
+            required = listOf("tool_title", "event_type", "session_id", "prompt"),
+            propertyOrdering = listOf("tool_title", "event_type", "match", "session_id", "prompt", "cooldown_seconds"),
+        ),
+        AgentToolDefinition(
+            name = "event_rule_list",
+            description = "List event rules (id, type, match, target session, prompt).",
+            parameters = mapOf("tool_title" to AgentToolParam("string", "A concise 5-10 word summary.")),
+            required = listOf("tool_title"),
+            propertyOrdering = listOf("tool_title"),
+        ),
+        AgentToolDefinition(
+            name = "event_rule_delete",
+            description = "Delete an event rule by id.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "id" to AgentToolParam("string", "The rule id."),
+            ),
+            required = listOf("tool_title", "id"),
+            propertyOrdering = listOf("tool_title", "id"),
+        ),
+        AgentToolDefinition(
+            name = "event_emit",
+            description = "Emit a custom event — fires any matching rules (useful for " +
+                "chaining workflows and testing rules end-to-end).",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "event_type" to AgentToolParam("string", "Event type (e.g. 'custom')."),
+                "payload" to AgentToolParam("string", "JSON object of payload fields."),
+            ),
+            required = listOf("tool_title", "event_type"),
+            propertyOrdering = listOf("tool_title", "event_type", "payload"),
+        ),
+    )
+
+    // [T-android-projects]
+    private fun projectDefinitions() = listOf(
+        AgentToolDefinition(
+            name = "project_create",
+            description = "Create a persistent project workspace. The directory survives " +
+                "session ends and sandbox resets and is mounted in EVERY session at " +
+                "/var/minis/projects/<name> — long-lived work (repos, datasets, venvs) " +
+                "lives here instead of the session-scoped workspace.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "name" to AgentToolParam("string", "Project name (2-64 chars, alnum . _ -)."),
+            ),
+            required = listOf("tool_title", "name"),
+            propertyOrdering = listOf("tool_title", "name"),
+        ),
+        AgentToolDefinition(
+            name = "project_list",
+            description = "List persistent projects with their in-session paths.",
+            parameters = mapOf("tool_title" to AgentToolParam("string", "A concise 5-10 word summary.")),
+            required = listOf("tool_title"),
+            propertyOrdering = listOf("tool_title"),
+        ),
+        AgentToolDefinition(
+            name = "project_delete",
+            description = "DELETE a persistent project and everything in it. Destructive " +
+                "and irreversible — only after explicit user confirmation.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "name" to AgentToolParam("string", "Project name to delete."),
+            ),
+            required = listOf("tool_title", "name"),
+            propertyOrdering = listOf("tool_title", "name"),
+        ),
+    )
 
     // Aligned with iOS AIChatViewModel.swift:4982-4993
     private fun shellExecuteDefinition(): AgentToolDefinition = AgentToolDefinition(
