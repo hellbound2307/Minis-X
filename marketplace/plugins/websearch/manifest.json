@@ -1,0 +1,22 @@
+{
+  "id": "websearch",
+  "name": "Web Search",
+  "version": "1.0.0",
+  "description": "Web search via Exa (neural+keyword) and Tavily (answer+results), auto engine pick. Closes the missing web_search tool-surface primitive.",
+  "author": "minis-x",
+  "permissions": {
+    "network": ["api.exa.ai", "api.tavily.com"],
+    "filesystem": [],
+    "shell": false
+  },
+  "payload": ["/var/minis/workspace/websearch"],
+  "source": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/websearch/manifest.json",
+  "mcpServers": [
+    {
+      "command": "python3",
+      "args": ["$PAYLOAD/websearch/server.py"],
+      "env": { "EXA_API_KEY": "$$EXA_API_KEY", "TAVILY_API_KEY": "$$TAVILY_API_KEY" },
+      "label": "main"
+    }
+  ]
+}
