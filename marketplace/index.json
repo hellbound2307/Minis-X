@@ -80,10 +80,10 @@
     {
       "id": "tg_backup",
       "name": "Telegram Backup Rail",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Telegram Bot API backup rail: send text/files to owner chat, restore files by file_id, chat-id discovery. The anti-wipe restore mechanism. Needs TG_BOT_TOKEN (+TG_CHAT_ID).",
       "author": "minis-x",
-      "verified": false,
+      "verified": true,
       "tags": [
         "backup",
         "telegram",

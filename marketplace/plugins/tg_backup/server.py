@@ -110,7 +110,8 @@ def do_get_file(a):
         blob = resp.read()
     outdir = "/var/minis/workspace/telegram"
     os.makedirs(outdir, exist_ok=True)
-    base = os.path.basename(fpath) or "restore.bin"
+    base = (a.get("as_name") or "").strip() or os.path.basename(fpath) or "restore.bin"
+    base = os.path.basename(base)  # no path traversal
     out = os.path.join(outdir, base)
     i = 1
     while os.path.exists(out):
@@ -154,9 +155,11 @@ TOOLS = [
                                     "caption": {"type": "string"}},
                      "required": ["path"]}},
     {"name": "get_file",
-     "description": "Restore a file by file_id -> /var/minis/workspace/telegram/.",
+     "description": ("Restore a file by file_id -> /var/minis/workspace/telegram/. "
+                     "Pass as_name to override the filename (Telegram renames stored docs to file_N.ext)."),
      "inputSchema": {"type": "object",
-                     "properties": {"file_id": {"type": "string"}},
+                     "properties": {"file_id": {"type": "string"},
+                                    "as_name": {"type": "string"}},
                      "required": ["file_id"]}},
     {"name": "get_updates",
      "description": "Recent messages (use to discover your chat_id after /start).",
