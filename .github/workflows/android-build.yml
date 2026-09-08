@@ -59,7 +59,7 @@ jobs:
         # zig cc with the aarch64-linux-musl target instead (reliable host).
         run: |
           curl -fsSL -o zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          tar xzf zig.tar.xz
+          tar xJf zig.tar.xz
           printf '#!/bin/sh\nexec %s/zig cc -target aarch64-linux-musl "$@"\n' "$PWD/zig-linux-x86_64-0.13.0" > /usr/local/bin/musl-cc
           chmod +x /usr/local/bin/musl-cc
 
