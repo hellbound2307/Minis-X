@@ -84,6 +84,14 @@ class MCPServerProcess:
                 "MINIS_PLUGIN_ID", "MINIS_PLUGIN_VERSION",
             }
             env = {k: v for k, v in env.items() if k in allowed}
+            # [T-plugin-manifest-env] Manifest-declared env entries must SURVIVE
+            # the scrub — they are the only sanctioned secret channel for plugins
+            # ($$VAR refs are resolved from the daemon environ, which inherits the
+            # shell env of whoever forked the daemon). Merge them back AFTER the
+            # strip; scrub keys (PATH/MINIS_*) stay scrub-controlled.
+            for k, v in (self.cfg.get("env") or {}).items():
+                if k not in allowed:
+                    env[k] = expand_env(v)
             # [T-plugin-netguard] Read the plugin's declared network allowlist
             # from plugin-policy.json (written app-side at install) and arm
             # the LD_PRELOAD connect() guard for this spawn. Missing file or
