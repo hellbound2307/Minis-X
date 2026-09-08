@@ -373,7 +373,10 @@ object PluginManager {
                     errors.add("$rel (not found)")
                     continue
                 }
-                val target = File(dest, rel.trimStart('/').replace("..", "_"))
+                val stripped = rel.trimStart('/')
+                val afterRoot = listOf("var/minis/workspace/","var/minis/shared/","var/minis/memory/","var/minis/skills/").firstOrNull{stripped.startsWith(it)}
+                val relative = if(afterRoot!=null)stripped.removePrefix(afterRoot) else stripped.substringAfterLast('/')
+                val target = File(dest, relative.replace("..","_"))
                 if (src.isDirectory) src.copyRecursively(target, overwrite = true)
                 else {
                     target.parentFile?.mkdirs()

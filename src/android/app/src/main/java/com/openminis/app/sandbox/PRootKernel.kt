@@ -644,6 +644,8 @@ object PRootKernel {
         cmd.add("-w")
         cmd.add("/root")
 
+        if (appContext != null) registerGlobalBindMounts(appContext)
+
         // User bind mounts
         for ((linuxPath, hostPath) in bindMounts) {
             cmd.add("-b")
