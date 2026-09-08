@@ -22,15 +22,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="$SCRIPT_DIR/../src/android/app/src/main/assets/default_mount/usr/local/lib/minis"
 OUT_FILE="$OUT_DIR/netguard.so"
 
-# Locate NDK clang (same discovery as build_proot.sh)
-CLANG=""
+# CRITICAL: the shim is LD_PRELOADed into GUEST processes (Alpine musl
+# python3), NOT into bionic processes. An NDK-built .so needs bionic symbols
+# (__errno, __sF) and DT_NEEDED libc.so -> musl loader fails relocation and
+# EVERY plugin spawn dies instantly (verified on-device 2026-09-08). Prefer a
+# musl cross-compiler via $CC; NDK is only a fallback with a loud warning.
+CLANG="${CC:-}"
 if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
     for c in "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android2*-clang \
              "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android-clang; do
         [ -x "$c" ] && CLANG="$c" && break
     done
 fi
-[ -z "$CLANG" ] && { echo "ERROR: NDK clang not found (set ANDROID_NDK_HOME)"; exit 1; }
+if [ -z "$CLANG" ]; then
+    # fallback: NDK discovery (bionic output — will NOT load under musl guests)
+    if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+        for c in "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android2*-clang \
+                 "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android-clang; do
+            [ -x "$c" ] && CLANG="$c" && break
+        done
+    fi
+    [ -n "$CLANG" ] && echo "WARNING: building netguard with NDK (bionic) — this shim will CRASH musl guest spawns. Set CC=aarch64-linux-musl-gcc instead."
+    [ -z "$CLANG" ] && { echo "ERROR: no compiler found (set CC=aarch64-linux-musl-gcc or ANDROID_NDK_HOME)"; exit 1; }
+fi
 
 echo "[netguard] building with $CLANG"
 mkdir -p "$OUT_DIR"
