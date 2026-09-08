@@ -26,6 +26,8 @@ object PRootKernel {
 
     var isBooted: Boolean = false
         private set
+    /** Stored so buildProotCommand can re-run global mount registration. */
+    private var appContext: Context? = null
 
     /** Path to native library directory (for LD_LIBRARY_PATH). */
     var nativeLibDir: String = ""
@@ -169,6 +171,7 @@ object PRootKernel {
         // were known at app launch.
         applyMountedFoldersSnapshot(context)
 
+        appContext = context
         isBooted = true
         Log.i(TAG, "PRoot kernel booted " +
             "rootfs=${rootfsManager.rootfsDir.absolutePath} " +
