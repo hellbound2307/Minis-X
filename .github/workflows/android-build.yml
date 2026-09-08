@@ -52,10 +52,21 @@ jobs:
           chmod +x deps/build_proot.sh
           ./deps/build_proot.sh
 
-      - name: Build netguard shim (LD_PRELOAD connect guard)
+      - name: Install aarch64 musl cross toolchain (for netguard shim)
+        # The shim is LD_PRELOADed into Alpine MUSL python3 inside the guest.
+        # An NDK/bionic build fails relocation there and kills every plugin
+        # spawn (verified 2026-09-08). Must be musl.
+        run: |
+          curl -fsSL -o musl-cross.tgz https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar xzf musl-cross.tgz
+          echo "$PWD/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+
+      - name: Build netguard shim (LD_PRELOAD connect guard, musl)
         # Vendors minis-netguard.so into default_mount/usr/local/lib/minis/ so
         # the minis-mcp-cli daemon can arm it for plugin server spawns whose
         # manifest declares a network allowlist. See deps/build_netguard.sh.
+        env:
+          CC: aarch64-linux-musl-gcc
         run: |
           chmod +x deps/build_netguard.sh
           ./deps/build_netguard.sh
