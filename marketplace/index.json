@@ -10,7 +10,11 @@
       "description": "Current conditions + 3-day forecast via wttr.in. No API key.",
       "author": "minis-x",
       "verified": true,
-      "tags": ["weather", "network", "daily-use"],
+      "tags": [
+        "weather",
+        "network",
+        "daily-use"
+      ],
       "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/weather/manifest.json",
       "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/weather/"
     },
@@ -21,7 +25,10 @@
       "description": "Offline unit conversion: length, mass, data, speed, temperature.",
       "author": "minis-x",
       "verified": true,
-      "tags": ["offline", "utilities"],
+      "tags": [
+        "offline",
+        "utilities"
+      ],
       "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/unitconv/manifest.json",
       "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/unitconv/"
     },
@@ -32,9 +39,58 @@
       "description": "Offline hashes, HMAC, base64, URL encode/decode, UUID + password generation.",
       "author": "minis-x",
       "verified": true,
-      "tags": ["offline", "security", "developer"],
+      "tags": [
+        "offline",
+        "security",
+        "developer"
+      ],
       "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/hashcrypt/manifest.json",
       "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/hashcrypt/"
+    },
+    {
+      "id": "websearch",
+      "name": "Web Search",
+      "version": "1.0.0",
+      "description": "Web search via Exa (neural+keyword) and Tavily (answer+results), auto engine pick, domain+date filters. Needs EXA_API_KEY or TAVILY_API_KEY.",
+      "author": "minis-x",
+      "verified": true,
+      "tags": [
+        "search",
+        "network",
+        "developer"
+      ],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/websearch/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/websearch/"
+    },
+    {
+      "id": "gh_ops",
+      "name": "GitHub Ops",
+      "version": "1.0.0",
+      "description": "Sword-loop GitHub operations: CI run visibility, workflow redispatch, git-less file commits, release cut with APK upload, PR/issue triage. Needs GITHUB_TOKEN.",
+      "author": "minis-x",
+      "verified": true,
+      "tags": [
+        "github",
+        "ci",
+        "developer"
+      ],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/gh_ops/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/gh_ops/"
+    },
+    {
+      "id": "tg_backup",
+      "name": "Telegram Backup Rail",
+      "version": "1.0.0",
+      "description": "Telegram Bot API backup rail: send text/files to owner chat, restore files by file_id, chat-id discovery. The anti-wipe restore mechanism. Needs TG_BOT_TOKEN (+TG_CHAT_ID).",
+      "author": "minis-x",
+      "verified": false,
+      "tags": [
+        "backup",
+        "telegram",
+        "recovery"
+      ],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/tg_backup/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/tg_backup/"
     }
   ]
 }
