@@ -401,8 +401,23 @@ object PluginManager {
                     continue
                 }
                 val stripped = rel.trimStart('/')
-                val afterRoot = listOf("var/minis/workspace/","var/minis/shared/","var/minis/memory/","var/minis/skills/").firstOrNull{stripped.startsWith(it)}
-                val relative = if(afterRoot!=null)stripped.removePrefix(afterRoot) else stripped.substringAfterLast('/')
+                // Marketplace-safe resolution: MarketplaceTools stages catalog
+                // payloads at workspace/marketplace/<id>/ and rewrites
+                // manifest.payload to the staged ABSOLUTE paths, while catalog
+                // args stay "$PAYLOAD/<repo-relative>". Strip marketplace/<id>
+                // so declared payload P lands where $PAYLOAD/<last-seg> points.
+                val candidates = listOf(
+                    "var/minis/workspace/marketplace/",
+                    "marketplace/",
+                    "var/minis/workspace/",
+                    "var/minis/shared/",
+                    "var/minis/memory/",
+                    "var/minis/skills/",
+                )
+                val afterRoot = candidates.firstOrNull{stripped.startsWith(it)}
+                val afterPrefix = if(afterRoot!=null)stripped.removePrefix(afterRoot) else stripped.substringAfterLast('/')
+                val idPrefix = "$id/"
+                val relative = if(afterPrefix.startsWith(idPrefix)) afterPrefix.removePrefix(idPrefix) else afterPrefix
                 val target = File(dest, relative.replace("..","_"))
                 if (src.isDirectory) src.copyRecursively(target, overwrite = true)
                 else {
