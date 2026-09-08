@@ -9402,7 +9402,6 @@ class ChatViewModel(
                 ToolExecutionResult(r.message, r.success)
             }
             else -> ToolExecutionResult("Unknown tool: $name", false)
-            else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }
 
