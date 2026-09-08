@@ -27,7 +27,15 @@ OUT_FILE="$OUT_DIR/netguard.so"
 # (__errno, __sF) and DT_NEEDED libc.so -> musl loader fails relocation and
 # EVERY plugin spawn dies instantly (verified on-device 2026-09-08). Prefer a
 # musl cross-compiler via $CC; NDK is only a fallback with a loud warning.
+# If no musl compiler is available and a VENDORED .so already exists, keep it
+# (authoritative) and skip the build rather than clobbering it with bionic.
 CLANG="${CC:-}"
+if [ -z "$CLANG" ] && [ -f "$OUT_FILE" ]; then
+    echo "[netguard] no \$CC musl compiler and vendored .so present — keeping vendored binary (authoritative)"
+    head -c 4 "$OUT_FILE" | od -An -tx1 | grep -q "7f 45 4c 46" || { echo "not ELF"; exit 1; }
+    echo "[netguard] vendored OK ($(stat -c%s "$OUT_FILE") bytes)"
+    exit 0
+fi
 if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
     for c in "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android2*-clang \
              "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android-clang; do
