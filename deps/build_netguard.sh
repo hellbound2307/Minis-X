@@ -34,7 +34,7 @@ fi
 
 echo "[netguard] building with $CLANG"
 mkdir -p "$OUT_DIR"
-"$CLANG" -shared -fPIC -O2 -Wall -o "$OUT_FILE" "$SCRIPT_DIR/netguard.c" -ldl
+"$CLANG" -shared -fPIC -O2 -Wall -o "$OUT_FILE" "$SCRIPT_DIR/netguard/netguard.c" -ldl
 echo "[netguard] OK -> $OUT_FILE ($(stat -c%s "$OUT_FILE") bytes)"
 
 # Smoke check: it must be an ELF shared object.
