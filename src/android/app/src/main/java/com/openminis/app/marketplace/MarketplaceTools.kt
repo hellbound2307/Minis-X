@@ -5,6 +5,8 @@ import com.openminis.app.logging.AppLogger
 import com.openminis.app.plugins.PluginManager
 import com.openminis.app.sandbox.ExecutionCoordinator
 import com.openminis.app.tools.ToolExecutionResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -104,7 +106,11 @@ object MarketplaceTools {
         }
     }
 
-    // MARK: - tool: marketplace_browse
+    // MARK: - public API (UI + tools)
+
+    /** Fetch (cached) + parse the catalog. Public for the Marketplace UI screen. */
+    suspend fun catalogEntries(force: Boolean = false): List<Entry> =
+        withContext(Dispatchers.IO) { parseEntries(fetchIndex(force)) }
 
     fun executeBrowse(argsJson: String): ToolExecutionResult {
         val args = try { org.json.JSONObject(argsJson) } catch (_: Exception) { org.json.JSONObject() }

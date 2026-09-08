@@ -80,6 +80,7 @@ fun SettingsScreen(
     onRootfsClick: () -> Unit = {},
     onBackupClick: () -> Unit = {},
     onTelegramRemoteClick: () -> Unit = {},
+    onMarketplaceClick: () -> Unit = {},
     onEnvVarsClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
     onTerminalClick: () -> Unit = {},
@@ -260,6 +261,13 @@ fun SettingsScreen(
                     title = "Telegram Remote",
                     subtitle = "Control Minis from Telegram from any device",
                     onClick = onTelegramRemoteClick,
+                )
+                SettingsItem(
+                    icon = Icons.Outlined.Extension,
+                    iconColor = Color(0xFF34C759),
+                    title = "Plugins & Marketplace",
+                    subtitle = "Browse, install and manage runtime plugins",
+                    onClick = onMarketplaceClick,
                     showDivider = false,
                 )
             }

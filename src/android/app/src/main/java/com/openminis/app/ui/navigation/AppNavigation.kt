@@ -111,6 +111,7 @@ object Routes {
     const val STORAGE = "storage"
     const val BACKUP = "backup"
     const val TELEGRAM_REMOTE = "telegram_remote"
+    const val MARKETPLACE = "marketplace"
     const val BACKUP_DESTINATIONS = "backup_destinations"
     const val BACKUP_HISTORY_DETAIL = "backup_history_detail"
     const val BACKUP_DESTINATION_BROWSE = "backup_destination_browse"
@@ -589,6 +590,7 @@ fun AppNavigation(
                 onRootfsClick = { navController.safeNavigate(Routes.STORAGE) },
                 onBackupClick = { navController.safeNavigate(Routes.BACKUP) },
                 onTelegramRemoteClick = { navController.safeNavigate(Routes.TELEGRAM_REMOTE) },
+                onMarketplaceClick = { navController.safeNavigate(Routes.MARKETPLACE) },
                 onEnvVarsClick = { navController.safeNavigate(Routes.ENV_VARS) },
                 onSkillsClick = { navController.safeNavigate(Routes.SKILLS) },
                 onTerminalClick = { navController.safeNavigate(Routes.terminal()) },
@@ -624,6 +626,12 @@ fun AppNavigation(
 
         composable(Routes.TELEGRAM_REMOTE) {
             com.openminis.app.telegram.TelegramRemoteScreen(
+                onBack = { navController.safePopBackStack() },
+            )
+        }
+
+        composable(Routes.MARKETPLACE) {
+            com.openminis.app.marketplace.MarketplaceScreen(
                 onBack = { navController.safePopBackStack() },
             )
         }
