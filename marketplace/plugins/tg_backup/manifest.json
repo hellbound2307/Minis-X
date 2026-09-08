@@ -1,0 +1,22 @@
+{
+  "id": "tg_backup",
+  "name": "Telegram Backup Rail",
+  "version": "1.0.0",
+  "description": "Telegram Bot API backup rail: send text/files to owner chat, restore files by file_id, discover chat_id. The anti-wipe restore mechanism as a permanent plugin.",
+  "author": "minis-x",
+  "permissions": {
+    "network": ["api.telegram.org"],
+    "filesystem": ["workspace", "shared", "attachments"],
+    "shell": false
+  },
+  "payload": ["/var/minis/workspace/tg_backup"],
+  "source": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/tg_backup/manifest.json",
+  "mcpServers": [
+    {
+      "command": "python3",
+      "args": ["$PAYLOAD/tg_backup/server.py"],
+      "env": { "TG_BOT_TOKEN": "$$TG_BOT_TOKEN", "TG_CHAT_ID": "$$TG_CHAT_ID" },
+      "label": "main"
+    }
+  ]
+}
