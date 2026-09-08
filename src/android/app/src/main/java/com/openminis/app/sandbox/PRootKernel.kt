@@ -647,7 +647,14 @@ object PRootKernel {
         cmd.add("-w")
         cmd.add("/root")
 
-        if (appContext != null) registerGlobalBindMounts(appContext)
+        // [T-plugin-payload-persistence] Defensive re-registration: the kernel
+        // singleton can outlive an Activity restart (Application process
+        // survives), so boot()'s isBooted guard may have skipped
+        // registerGlobalBindMounts for NEW mounts added by an APK update.
+        // Re-run here — idempotent. Local val: Kotlin smart-cast needs an
+        // immutable capture of the mutable property.
+        val ctx = appContext
+        if (ctx != null) registerGlobalBindMounts(ctx)
 
         // User bind mounts
         for ((linuxPath, hostPath) in bindMounts) {
