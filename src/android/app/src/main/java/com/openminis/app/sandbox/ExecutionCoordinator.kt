@@ -206,6 +206,21 @@ object ExecutionCoordinator {
             PRootKernel.addBindMount(linuxPath, hostDir.absolutePath)
         }
 
+        // [T-android-projects] Persistent project workspaces — survive session
+        // ends and rootfs resets. MUST be here: PersistentShell builds PRoot's
+        // `-b` argv from THIS map (see mcp-servers note above).
+        val projectsDir = File(globalBase, "projects").also { it.mkdirs() }
+        mounts["/var/minis/projects"] = projectsDir.absolutePath
+        PRootKernel.addBindMount("/var/minis/projects", projectsDir.absolutePath)
+
+        // [T-plugin-payload-persistence] Parent of all plugin payloads — each
+        // plugin's copy lives at /var/minis/plugins/<id> (rewritten from the
+        // manifest's $PAYLOAD placeholder at install). Parent mount, not
+        // per-plugin, so installs never need a re-bind.
+        val payloadsDir = File(globalBase, "plugins/payloads").also { it.mkdirs() }
+        mounts["/var/minis/plugins"] = payloadsDir.absolutePath
+        PRootKernel.addBindMount("/var/minis/plugins", payloadsDir.absolutePath)
+
         // T277: user-mounted external folders (SAF-picked trees). PersistentShell
         // uses this map verbatim as PRoot's `-b` argv, so any mount missing here
         // is invisible to the shell — `ls /var/minis/mounts/<name>/` then shows
