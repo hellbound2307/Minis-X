@@ -68,7 +68,7 @@ jobs:
           head -c 4 "$SO" | od -An -tx1 | grep -q "7f 45 4c 46" || { echo "netguard.so not ELF"; exit 1; }
           echo "netguard.so present: $(stat -c%s "$SO") bytes, ELF OK"
 
-- name: Build netguard shim (LD_PRELOAD connect guard, musl)
+      - name: Build netguard shim (LD_PRELOAD connect guard, musl)
         # Vendors minis-netguard.so into default_mount/usr/local/lib/minis/ so
         # the minis-mcp-cli daemon can arm it for plugin server spawns whose
         # manifest declares a network allowlist. See deps/build_netguard.sh.
