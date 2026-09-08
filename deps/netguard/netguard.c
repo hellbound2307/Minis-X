@@ -108,23 +108,25 @@ static void refresh_allowed_ips(void) {
     }
 }
 
-/* Does the allowlist contain this name (case-insensitive, suffix match on
- * exact host or any-parent domain like ".example.com")? */
+/* Does the allowlist contain this name (case-insensitive)?
+ * Exact match, or name is a SUBDOMAIN of an entry (name = "<label>." + entry).
+ * [T-plugin-netguard-fix] Round-5 finding: the old first branch did a PREFIX
+ * match ("example.com" matched "example.com.evil.com" — an attacker with a
+ * PTR record pointing their host at such a name bypassed the guard). Match
+ * direction is now suffix-only: entry must equal the name or be its domain. */
 static int name_allowed(const char *name) {
     if (!name || !*name) return 0;
     for (int i = 0; i < allow_count; i++) {
         const char *a = allow_list[i];
         size_t al = strlen(a), nl = strlen(name);
-        if (al && nl >= al) {
-            if (strncasecmp(name, a, al) == 0 &&
-                (nl == al || (a[0] == '.' ) || name[nl - al - 1] == '.')) {
-                return 1;
-            }
-            /* exact or subdomain: api.example.com matches example.com */
-            if (nl > al && strcasecmp(name + nl - al, a) == 0 && name[nl - al - 1] == '.') {
-                return 1;
-            }
-        }
+        if (al == 0 || nl < al) continue;
+        /* exact */
+        if (nl == al && strncasecmp(name, a, al) == 0) return 1;
+        /* subdomain: name ends with "." + entry */
+        if (nl > al && name[nl - al - 1] == '.' && strcasecmp(name + nl - al, a) == 0) return 1;
+        /* allowlist entry written with a leading dot: ".example.com" */
+        if (a[0] == '.' && nl > al && strcasecmp(name + nl - al, a + 1) == 0 &&
+            name[nl - al] == '.') return 1;
     }
     return 0;
 }
