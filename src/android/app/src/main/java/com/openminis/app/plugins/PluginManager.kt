@@ -416,7 +416,7 @@ object PluginManager {
                 )
                 val afterRoot = candidates.firstOrNull{stripped.startsWith(it)}
                 val afterPrefix = if(afterRoot!=null)stripped.removePrefix(afterRoot) else stripped.substringAfterLast('/')
-                val idPrefix = "$id/"
+                val idPrefix = "${manifest.id}/"
                 val relative = if(afterPrefix.startsWith(idPrefix)) afterPrefix.removePrefix(idPrefix) else afterPrefix
                 val target = File(dest, relative.replace("..","_"))
                 if (src.isDirectory) src.copyRecursively(target, overwrite = true)
