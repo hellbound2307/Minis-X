@@ -19,8 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUT_DIR="$PROJECT_ROOT/src/android/app/src/main/assets/default_mount/usr/local/lib/minis"
+OUT_DIR="$SCRIPT_DIR/../src/android/app/src/main/assets/default_mount/usr/local/lib/minis"
 OUT_FILE="$OUT_DIR/netguard.so"
 
 # Locate NDK clang (same discovery as build_proot.sh)
@@ -36,8 +35,8 @@ fi
 echo "[netguard] building with $CLANG"
 mkdir -p "$OUT_DIR"
 "$CLANG" -shared -fPIC -O2 -Wall -o "$OUT_FILE" "$SCRIPT_DIR/netguard.c" -ldl
-echo "[netguard] OK → $OUT_FILE ($(stat -c%s "$OUT_FILE") bytes)"
+echo "[netguard] OK -> $OUT_FILE ($(stat -c%s "$OUT_FILE") bytes)"
 
-# Smoke check: it must be an ELF aarch64 shared object.
-head -c 20 "$OUT_FILE" | od -An -tx1 | grep -q "7f 45 4c 46" || { echo "not ELF"; exit 1; }
+# Smoke check: it must be an ELF shared object.
+head -c 4 "$OUT_FILE" | od -An -tx1 | grep -q "7f 45 4c 46" || { echo "not ELF"; exit 1; }
 echo "[netguard] ELF header verified"
