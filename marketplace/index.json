@@ -65,8 +65,8 @@
     {
       "id": "gh_ops",
       "name": "GitHub Ops",
-      "version": "1.0.0",
-      "description": "Sword-loop GitHub operations: CI run visibility, workflow redispatch, git-less file commits, release cut with APK upload, PR/issue triage. Needs GITHUB_TOKEN.",
+      "version": "1.1.0",
+      "description": "GitHub operations for the sword-loop: CI run visibility, workflow redispatch, git-less commits (single + batch), release cut with APK upload, PR/issue triage.",
       "author": "minis-x",
       "verified": true,
       "tags": [

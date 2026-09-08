@@ -146,6 +146,49 @@ def do_release_cut(a):
             out.append("asset upload FAILED %s: %s" % (st3, up if isinstance(up, str) else up.get("message")))
     return "\n".join(out)
 
+def do_commit_batch(a):
+    """One push for N files (blobs -> tree -> commit -> ref update).
+    Use this instead of N commit_file calls - each commit_file push triggers CI."""
+    o, r = repo(a).split("/", 1)
+    branch = a.get("branch") or "main"
+    files = a.get("files") or []
+    if not files:
+        raise RuntimeError("files required: [{path, content|file}, ...]")
+    st, ref = gh("/repos/%s/%s/git/ref/heads/%s" % (o, r, branch))
+    if st != 200:
+        raise RuntimeError("ref %s: %s" % (st, ref if isinstance(ref, str) else ref.get("message")))
+    base_sha = ref["object"]["sha"]
+    tree_items = []
+    for f in files:
+        if f.get("file"):
+            fp = os.path.abspath(f["file"])
+            if not (fp.startswith("/var/minis/workspace/") or fp.startswith("/var/minis/attachments/")):
+                raise RuntimeError("file outside workspace/attachments: %s" % fp)
+            content = open(fp, "rb").read()
+        else:
+            content = (f.get("content") or "").encode()
+        st, blob = gh("/repos/%s/%s/git/blobs" % (o, r), method="POST",
+                      body={"content": base64.b64encode(content).decode(), "encoding": "base64"})
+        if st != 201:
+            raise RuntimeError("blob %s: %s" % (st, blob if isinstance(blob, str) else blob.get("message")))
+        tree_items.append({"path": f["path"].lstrip("/"), "mode": "100644",
+                           "type": "blob", "sha": blob["sha"]})
+    st, tree = gh("/repos/%s/%s/git/trees" % (o, r), method="POST",
+                  body={"base_tree": base_sha, "tree": tree_items})
+    if st != 201:
+        raise RuntimeError("tree %s: %s" % (st, tree if isinstance(tree, str) else tree.get("message")))
+    st, cmt = gh("/repos/%s/%s/git/commits" % (o, r), method="POST",
+                 body={"message": a.get("message") or ("batch update (%d files)" % len(tree_items)),
+                       "tree": tree["sha"], "parents": [base_sha]})
+    if st != 201:
+        raise RuntimeError("commit %s: %s" % (st, cmt if isinstance(cmt, str) else cmt.get("message")))
+    st, _ = gh("/repos/%s/%s/git/refs/heads/%s" % (o, r, branch),
+               method="PATCH", body={"sha": cmt["sha"]})
+    if st != 200:
+        raise RuntimeError("ref update failed %s" % st)
+    return ("batch commit %s on %s: %d files in ONE push (tree %s)"
+            % (str(cmt["sha"])[:8], branch, len(tree_items), str(tree["sha"])[:8]))
+
 def do_repo_triage(a):
     o, r = repo(a).split("/", 1)
     lines = []
@@ -181,12 +224,25 @@ TOOLS = [
                                     "ref": {"type": "string"}, "inputs": {"type": "object"}},
                      "required": ["workflow"]}},
     {"name": "commit_file",
-     "description": "Git-less commit: create/update one file on a branch (content string or file path in workspace/attachments).",
+     "description": ("Git-less commit: create/update ONE file on a branch (content string or file path in workspace/attachments). "
+                     "WARNING: each call pushes to the branch and triggers CI - for multiple files use commit_batch."),
      "inputSchema": {"type": "object",
                      "properties": {"repo": {"type": "string"}, "path": {"type": "string"},
                                     "content": {"type": "string"}, "file": {"type": "string"},
                                     "message": {"type": "string"}, "branch": {"type": "string"}},
                      "required": ["path"]}},
+    {"name": "commit_batch",
+     "description": ("ONE push for N files (blobs -> tree -> single commit -> ref update). "
+                     "Always prefer this over repeated commit_file - one CI build instead of N."),
+     "inputSchema": {"type": "object",
+                     "properties": {"repo": {"type": "string"}, "branch": {"type": "string"},
+                                    "message": {"type": "string"},
+                                    "files": {"type": "array", "items": {"type": "object",
+                                              "properties": {"path": {"type": "string"},
+                                                             "content": {"type": "string"},
+                                                             "file": {"type": "string"}},
+                                              "required": ["path"]}}},
+                     "required": ["files", "message"]}},
     {"name": "release_cut",
      "description": "Create release from tag (reuses existing on 422) and optionally upload asset (APK) from workspace/attachments.",
      "inputSchema": {"type": "object",
@@ -201,8 +257,8 @@ TOOLS = [
 ]
 
 DISPATCH = {"ci_runs": do_ci_runs, "ci_redispatch": do_ci_redispatch,
-            "commit_file": do_commit_file, "release_cut": do_release_cut,
-            "repo_triage": do_repo_triage}
+            "commit_file": do_commit_file, "commit_batch": do_commit_batch,
+            "release_cut": do_release_cut, "repo_triage": do_repo_triage}
 
 def send(obj):
     sys.stdout.write(json.dumps(obj) + "\n")

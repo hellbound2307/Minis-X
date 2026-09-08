@@ -1,21 +1,34 @@
 {
   "id": "gh_ops",
   "name": "GitHub Ops",
-  "version": "1.0.0",
-  "description": "GitHub operations for the sword-loop: CI run visibility, workflow redispatch, git-less file commits, release cut with APK upload, open PR/issue triage. Consolidates ci_watch + repo_guard + release_cut.",
+  "version": "1.1.0",
+  "description": "GitHub operations for the sword-loop: CI run visibility, workflow redispatch, git-less commits (single + batch), release cut with APK upload, PR/issue triage.",
   "author": "minis-x",
   "permissions": {
-    "network": ["api.github.com", "uploads.github.com"],
-    "filesystem": ["workspace", "attachments"],
+    "network": [
+      "api.github.com",
+      "uploads.github.com"
+    ],
+    "filesystem": [
+      "workspace",
+      "attachments"
+    ],
     "shell": false
   },
-  "payload": ["/var/minis/workspace/gh_ops"],
+  "payload": [
+    "/var/minis/workspace/gh_ops"
+  ],
   "source": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/gh_ops/manifest.json",
   "mcpServers": [
     {
       "command": "python3",
-      "args": ["$PAYLOAD/gh_ops/server.py"],
-      "env": { "GITHUB_TOKEN": "$$GITHUB_TOKEN", "GH_DEFAULT_REPO": "hellbound2307/Minis-X" },
+      "args": [
+        "$PAYLOAD/gh_ops/server.py"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "$$GITHUB_TOKEN",
+        "GH_DEFAULT_REPO": "hellbound2307/Minis-X"
+      },
       "label": "main"
     }
   ]
