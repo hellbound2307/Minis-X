@@ -1,0 +1,16 @@
+{
+  "id": "unitconv",
+  "name": "Unit Converter",
+  "version": "1.0.0",
+  "description": "Offline unit conversion: length, mass, data, speed, temperature. Zero network, zero dependencies.",
+  "author": "minis-x",
+  "permissions": {
+    "network": [],
+    "filesystem": [],
+    "shell": false
+  },
+  "payload": ["server.py"],
+  "mcpServers": [
+    { "command": "python3", "args": ["$PAYLOAD/server.py"], "label": "unitconv" }
+  ]
+}

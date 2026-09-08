@@ -67,6 +67,8 @@ object AgentTools {
         eventRuleSetDefinition().forEach { add(it) }
         // [T-android-projects] Persistent project workspaces.
         projectDefinitions().forEach { add(it) }
+        // [T-android-marketplace] Curated catalog — browse/install by id.
+        com.openminis.app.marketplace.MarketplaceTools.definitions().forEach { add(it) }
     }
 
     // [T-android-event-bus]

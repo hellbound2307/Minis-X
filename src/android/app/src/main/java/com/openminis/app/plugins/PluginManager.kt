@@ -98,6 +98,33 @@ object PluginManager {
             )
         }
 
+        // [T-marketplace-permission-diff] Update gate: when the same plugin id
+        // exists in the registry (even disabled/broken), an install that EXPANDS
+        // permissions is refused with a diff message. This is the supply-chain
+        // mitigation ChatGPT flagged: an update can never silently grow its
+        // own privileges — the old entry must be uninstalled first, which the
+        // user sees. Install-time, not per-call; the kernel still refuses to
+        // open the marketplace beyond curated until runtime enforcement grows.
+        get(manifest.id)?.let { previous ->
+            val prev = previous.manifest
+            val addedNetwork = manifest.networkHosts.filter { it !in prev.networkHosts }
+            val addedFs = manifest.filesystemScopes.filter { it !in prev.filesystemScopes }
+            val shellGrew = manifest.shell && !prev.shell
+            if (addedNetwork.isNotEmpty() || addedFs.isNotEmpty() || shellGrew) {
+                val parts = ArrayList<String>()
+                if (addedNetwork.isNotEmpty()) parts.add("network += ${addedNetwork.joinToString(", ")}")
+                if (addedFs.isNotEmpty()) parts.add("filesystem += ${addedFs.joinToString(", ")}")
+                if (shellGrew) parts.add("shell: false → true")
+                return@withLock InstallResult(
+                    false,
+                    "PERMISSION EXPANSION REFUSED: '${manifest.id}' (${prev.version} → ${manifest.version}) " +
+                        "requests MORE permissions than the installed version: ${parts.joinToString("; ")}. " +
+                        "If you trust this update, uninstall the old version first, then install.",
+                    false,
+                )
+            }
+        }
+
         val installed = PluginRegistry.InstalledPlugin(
             manifest = manifest,
             installedAtMs = System.currentTimeMillis(),
@@ -419,5 +446,5 @@ object PluginManager {
     /** App-side payload dir for [id] (used by doctor + reinstall). */
     fun payloadDir(context: Context, id: String): File = hostPayloadDir(context, id)
 
-    data class InstallResult(val success: Boolean, val message: String)
+    data class InstallResult(val success: Boolean, val message: String, val permissionDiff: Boolean = false)
 }

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "updated": "2026-09-08",
+  "catalog": "Minis X Official",
+  "plugins": [
+    {
+      "id": "weather",
+      "name": "Weather",
+      "version": "1.0.0",
+      "description": "Current conditions + 3-day forecast via wttr.in. No API key.",
+      "author": "minis-x",
+      "verified": true,
+      "tags": ["weather", "network", "daily-use"],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/weather/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/weather/"
+    },
+    {
+      "id": "unitconv",
+      "name": "Unit Converter",
+      "version": "1.0.0",
+      "description": "Offline unit conversion: length, mass, data, speed, temperature.",
+      "author": "minis-x",
+      "verified": true,
+      "tags": ["offline", "utilities"],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/unitconv/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/unitconv/"
+    },
+    {
+      "id": "hashcrypt",
+      "name": "Hash & Encoding Toolkit",
+      "version": "1.0.0",
+      "description": "Offline hashes, HMAC, base64, URL encode/decode, UUID + password generation.",
+      "author": "minis-x",
+      "verified": true,
+      "tags": ["offline", "security", "developer"],
+      "manifestUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/hashcrypt/manifest.json",
+      "baseUrl": "https://raw.githubusercontent.com/hellbound2307/Minis-X/main/marketplace/plugins/hashcrypt/"
+    }
+  ]
+}

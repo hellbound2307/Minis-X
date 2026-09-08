@@ -9401,6 +9401,15 @@ class ChatViewModel(
                 val r = com.openminis.app.projects.ProjectTools.delete(context, name)
                 ToolExecutionResult(r.message, r.success)
             }
+            // [T-android-marketplace] Curated catalog client. Install is
+            // suspend (stages payload through the session shell, then runs
+            // the kernel pipeline with the permission-diff gate).
+            "marketplace_browse" -> com.openminis.app.marketplace.MarketplaceTools.executeBrowse(argsJson)
+            "marketplace_entry" -> com.openminis.app.marketplace.MarketplaceTools.executeEntry(argsJson)
+            "marketplace_install" -> com.openminis.app.marketplace.MarketplaceTools.executeInstall(
+                argsJson = argsJson,
+                sessionId = activeSessionId,
+            )
             else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }
@@ -10346,7 +10355,8 @@ class ChatViewModel(
 - plugin_install: Install a PLUGIN from a manifest JSON — adds NEW agent-callable tools at runtime with NO app update. Pipeline: author manifest + server script in /var/minis/workspace (file_write) → plugin_manifest_schema to check the format → plugin_install (validates strictly, runs the install hook in the sandbox, registers MCP servers via minis-mcp-cli). Permissions are recorded and audited; plugin_uninstall reverses. Use to close capability gaps yourself — declare only the permissions the plugin needs. Plugin MCP servers run with a SCRUBBED env and, when the manifest declares network hosts, an LD_PRELOAD connect() guard that BLOCKS every non-allowlisted host (violations log 'NETGUARD:BLOCK').
 - plugin_doctor / plugin_reinstall / plugin_reinstall_from_registry / plugin_enable: plugin health-check + repair (MCP re-registration, payload presence), reinstall from URL or stored manifest, and the kill switch (disable = tools vanish next turn).
 - event_rule_set / event_rule_list / event_rule_delete / event_emit: rules that WAKE the agent — a notification from a specific app (or a custom event) dispatches an agent turn into a target session with the payload. Cooldown per rule prevents loops. This is how you build vigilance: 'when WhatsApp from boss → triage', 'when battery low → checkpoint work'.
-- project_create / project_list / project_delete: persistent project workspaces at /var/minis/projects/<name> — survive session ends and sandbox resets, mounted in every session. Long-lived work (repos, datasets) lives here, NOT in the session workspace."""
+- project_create / project_list / project_delete: persistent project workspaces at /var/minis/projects/<name> — survive session ends and sandbox resets, mounted in every session. Long-lived work (repos, datasets) lives here, NOT in the session workspace.
+- marketplace_browse / marketplace_install / marketplace_entry: the curated Minis X plugin catalog (marketplace/index.json in the repo). Browse by tag/query, inspect declared permissions, install by id — the kernel stages the payload, enforces the permission-diff update gate, and arms the netguard allowlist. Install these instead of authoring from scratch when a catalog plugin fits; publish your own via a PR to marketplace/plugins/ in the repo."""
         val memorySystemSection = if (memoryOn) {            """
 
 Memory system (currently ENABLED):

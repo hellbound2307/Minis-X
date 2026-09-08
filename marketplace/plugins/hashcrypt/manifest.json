@@ -1,0 +1,16 @@
+{
+  "id": "hashcrypt",
+  "name": "Hash & Encoding Toolkit",
+  "version": "1.0.0",
+  "description": "Offline hashing (sha256/sha1/sha512/md5), HMAC, base64, URL encode/decode, UUID + password generation. Zero network.",
+  "author": "minis-x",
+  "permissions": {
+    "network": [],
+    "filesystem": [],
+    "shell": false
+  },
+  "payload": ["server.py"],
+  "mcpServers": [
+    { "command": "python3", "args": ["$PAYLOAD/server.py"], "label": "hashcrypt" }
+  ]
+}

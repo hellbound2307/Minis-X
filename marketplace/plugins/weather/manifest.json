@@ -1,0 +1,16 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "description": "Current conditions + 3-day forecast via wttr.in. No API key. Network: wttr.in only (netguard-enforced).",
+  "author": "minis-x",
+  "permissions": {
+    "network": ["wttr.in"],
+    "filesystem": [],
+    "shell": false
+  },
+  "payload": ["server.py"],
+  "mcpServers": [
+    { "command": "python3", "args": ["$PAYLOAD/server.py"], "label": "weather" }
+  ]
+}
