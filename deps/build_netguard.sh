@@ -48,7 +48,9 @@ fi
 
 echo "[netguard] building with $CLANG"
 mkdir -p "$OUT_DIR"
-"$CLANG" -shared -fPIC -O2 -Wall -o "$OUT_FILE" "$SCRIPT_DIR/netguard/netguard.c" -ldl
+# NOTE: no -ldl — musl keeps dl* in libc and zig's musl target has no libdl;
+# dl* symbols resolve from libc on both native Alpine gcc and zig cc musl.
+"$CLANG" -shared -fPIC -O2 -Wall -o "$OUT_FILE" "$SCRIPT_DIR/netguard/netguard.c"
 echo "[netguard] OK -> $OUT_FILE ($(stat -c%s "$OUT_FILE") bytes)"
 
 # Smoke check: it must be an ELF shared object.
