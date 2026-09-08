@@ -40,12 +40,23 @@
 typedef int (*connect_fn_t)(int, const struct sockaddr *, socklen_t);
 static connect_fn_t real_connect = NULL;
 
+/* [T-plugin-netguard-dnsrace] getaddrinfo hook: when the HOST resolves an
+ * allowlisted name, cache every IP returned by that very answer (v4 + v6).
+ * Previously connect() matched against an init-time forward-resolve cache,
+ * while the host resolved independently — for DNS-rotating hosts (GitHub API)
+ * the two queries could disagree, so allowlisted connects failed EPERM
+ * non-deterministically. Recording the app's own answer closes the race. */
+typedef int (*gai_fn_t)(const char *, const char *, const struct addrinfo *, struct addrinfo **);
+static gai_fn_t real_getaddrinfo = NULL;
+static int name_allowed(const char *name);
+
 static char **allow_list = NULL;
 static int allow_count = 0;
 static int allow_star = 0;
 static int allow_private = 1; /* private/loopback allowed unless "!" present */
 static int initialized = 0;
 static void refresh_allowed_ips(void);
+static int name_allowed(const char *name);
 
 static void netguard_init(void) {
     initialized = 1;
@@ -85,6 +96,41 @@ static void add_allowed_ip4(unsigned int ip) {
         allowed_ips = realloc(allowed_ips, allowed_ip_cap * sizeof(unsigned int));
     }
     allowed_ips[allowed_ip_count++] = ip;
+}
+
+static struct in6_addr *allowed_ip6 = NULL;
+static int allowed_ip6_count = 0;
+static int allowed_ip6_cap = 0;
+
+static void add_allowed_ip6(const struct sockaddr_in6 *a) {
+    for (int i = 0; i < allowed_ip6_count; i++) {
+        if (memcmp(&allowed_ip6[i], &a->sin6_addr, 16) == 0) return; /* dedupe */
+    }
+    if (allowed_ip6_count >= allowed_ip6_cap) {
+        allowed_ip6_cap = allowed_ip6_cap ? allowed_ip6_cap * 2 : 16;
+        allowed_ip6 = realloc(allowed_ip6, allowed_ip6_cap * sizeof(struct in6_addr));
+    }
+    memcpy(&allowed_ip6[allowed_ip6_count++], &a->sin6_addr, 16);
+}
+
+/* getaddrinfo hook: pass through to libc; when the requested name is
+ * allowlisted, absorb the answer's IPs into the connect-time cache. */
+int getaddrinfo(const char *node, const char *service,
+                const struct addrinfo *hints, struct addrinfo **res) {
+    if (!initialized) netguard_init();
+    if (!real_getaddrinfo)
+        real_getaddrinfo = (gai_fn_t)dlsym(RTLD_NEXT, "getaddrinfo");
+    int rc = real_getaddrinfo(node, service, hints, res);
+    if (rc == 0 && node && *node && res && name_allowed(node)) {
+        for (struct addrinfo *r = *res; r; r = r->ai_next) {
+            if (r->ai_family == AF_INET) {
+                add_allowed_ip4(ntohl(((struct sockaddr_in *)r->ai_addr)->sin_addr.s_addr));
+            } else if (r->ai_family == AF_INET6) {
+                add_allowed_ip6((const struct sockaddr_in6 *)r->ai_addr);
+            }
+        }
+    }
+    return rc;
 }
 
 static void refresh_allowed_ips(void) {
@@ -160,6 +206,11 @@ static int ip_allowed(const struct sockaddr *sa) {
         }
         for (int i = 0; i < allowed_ip_count; i++) {
             if (allowed_ips[i] == ip) return 1;
+        }
+    } else if (sa->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *in6 = (const struct sockaddr_in6 *)sa;
+        for (int i = 0; i < allowed_ip6_count; i++) {
+            if (memcmp(&allowed_ip6[i], &in6->sin6_addr, 16) == 0) return 1;
         }
     }
     /* IP-literal match against allowlist entries (covers explicit IPs) */
