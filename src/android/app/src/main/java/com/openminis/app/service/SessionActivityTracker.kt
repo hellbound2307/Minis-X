@@ -24,6 +24,49 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object SessionActivityTracker {
 
+    // [T-beast-round2] Agent-requested KEEP-ALIVE: when set, the foreground
+    // service survives even with no active/present sessions — this is the
+    // background-survival primitive for watchers, storefronts (TaskForge) and
+    // any "agent on watch" use. Persisted so it survives app restarts; the
+    // agent sets/clears it via the keep_alive tool. Manual off-switch in the
+    // notification keeps the user in control (their swipe beats our flag).
+    private var _keepAliveRequested = MutableStateFlow(false)
+    val keepAliveRequested: StateFlow<Boolean> = _keepAliveRequested.asStateFlow()
+    private const val KEEPALIVE_PREFS = "minis_keepalive"
+    private const val KEEPALIVE_KEY = "keep_alive_requested"
+
+    /**
+     * [T-beast-round2] Load the persisted keep-alive flag at app start.
+     * Called once from [com.openminis.app.MinisApp] — before any service
+     * decisions so a reboot-then-launch keeps honoring a watch request.
+     */
+    fun loadKeepAlive(context: Context) {
+        val sp = context.getSharedPreferences(KEEPALIVE_PREFS, Context.MODE_PRIVATE)
+        _keepAliveRequested.value = sp.getBoolean(KEEPALIVE_KEY, false)
+    }
+
+    /**
+     * [T-beast-round2] Set/clear the agent keep-alive request. Enabling it
+     * immediately starts the foreground service (with a "on watch" style
+     * notification the user can see and stop); disabling re-evaluates the
+     * service decision normally.
+     */
+    fun setKeepAlive(enabled: Boolean) {
+        _keepAliveRequested.value = enabled
+        appContext?.let {
+            it.getSharedPreferences(KEEPALIVE_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEEPALIVE_KEY, enabled).apply()
+        }
+        if (enabled) {
+            startServiceIfNeeded()
+        } else if (!shouldRunService()) {
+            stopService()
+        } else {
+            updateService()
+        }
+        Log.i(TAG, "[T-beast-round2] keepAlive set to $enabled")
+    }
+
     private const val TAG = "SessionTracker"
 
     private val _activeSessions = MutableStateFlow<Set<String>>(emptySet())
@@ -198,7 +241,10 @@ object SessionActivityTracker {
      * state flows rather than tracking a derived flag.
      */
     private fun shouldRunService(): Boolean =
-        _activeSessions.value.isNotEmpty() || _presentSessions.value.isNotEmpty()
+        _activeSessions.value.isNotEmpty() ||
+            _presentSessions.value.isNotEmpty() ||
+            // [T-beast-round2] agent-requested keep-alive outranks idleness.
+            _keepAliveRequested.value
 
     /**
      * T50: per-session stream-cancel callbacks. Each ChatViewModel

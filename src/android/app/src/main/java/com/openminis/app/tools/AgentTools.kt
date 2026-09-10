@@ -48,6 +48,8 @@ object AgentTools {
         add(waitAndResumeDefinition())
         add(timerListDefinition())
         add(timerCancelDefinition())
+        // [T-beast-round2] Agent-controlled background survival.
+        add(keepAliveDefinition())
         // [T-android-job-tools] Background job control for the sandbox shell.
         add(jobStartDefinition())
         add(jobPollDefinition())
@@ -320,6 +322,28 @@ object AgentTools {
         ),
         required = listOf("tool_title", "id"),
         propertyOrdering = listOf("tool_title", "id"),
+    )
+
+    // [T-beast-round2] keep_alive: control the background-survival flag.
+    // The foreground service normally stops when no chat is active and no
+    // stream is running. With keep_alive=true it stays up across app-close /
+    // swipe-away, keeping detached jobs (job_start), watchers and long ops
+    // alive. Persisted across restarts. The user can always stop it from the
+    // notification.
+    private fun keepAliveDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = "keep_alive",
+        description = "Control whether the app keeps running in the background " +
+            "when no chat is active. Use enable=true before starting long watches " +
+            "(monitoring loops, storefront bots, cron-like sweeps) that must survive " +
+            "the user closing the app; disable when done. Shows the current state " +
+            "when called with no enabled argument. A persistent notification " +
+            "appears while enabled — the user can stop it any time.",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+            "enabled" to AgentToolParam("boolean", "true to keep the app alive in background, false to stop. Omit to just query the current state."),
+        ),
+        required = listOf("tool_title"),
+        propertyOrdering = listOf("tool_title", "enabled"),
     )
 
     // [T-android-job-tools] job_start: run a command DETACHED in the sandbox.

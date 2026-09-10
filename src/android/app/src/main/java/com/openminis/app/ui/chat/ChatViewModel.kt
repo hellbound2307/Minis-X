@@ -9255,6 +9255,33 @@ class ChatViewModel(
             }
             // [T-android-job-tools] Background job control. All three are
             // suspend (they round-trip through the session's persistent shell).
+            "keep_alive" -> {
+                // [T-beast-round2] Background survival flag. No args = query.
+                val enabledArg = try {
+                    val o = JSONObject(argsJson)
+                    if (o.has("enabled")) o.optBoolean("enabled", false) else null
+                } catch (_: Exception) { null }
+                if (enabledArg == null) {
+                    ToolExecutionResult(
+                        "keep_alive is currently: " +
+                            (if (com.openminis.app.service.SessionActivityTracker.keepAliveRequested.value)
+                                "ENABLED — app survives backgrounding" else "disabled"),
+                        true,
+                    )
+                } else {
+                    com.openminis.app.service.SessionActivityTracker.setKeepAlive(enabledArg)
+                    ToolExecutionResult(
+                        if (enabledArg)
+                            "keep-alive ENABLED: the app now stays alive in the background " +
+                                "(survives app-close and swipe-away; detached jobs keep running). " +
+                                "A persistent notification appears — the user can stop it any time."
+                        else
+                            "keep-alive DISABLED: the app returns to normal lifecycle " +
+                                "(stops when no chat is active).",
+                        true,
+                    )
+                }
+            }
             "job_start" -> com.openminis.app.tools.jobs.JobTools.executeStart(
                 argsJson = argsJson,
                 sessionId = activeSessionId,
@@ -10347,6 +10374,7 @@ class ChatViewModel(
 - job_start: Run a long command DETACHED (setsid, no timeout that kills it) — servers, watchers, big builds. Returns a job id; the process keeps running across turns.
 - job_poll: Check a job's status (RUNNING/DONE) + log tail + exit code. Without id: list all jobs.
 - job_kill: Kill a job's whole process group.
+- keep_alive: Control background survival. enable=true keeps the app alive after the user closes it (persistent notification, survives swipe-away) so job_start watchers/servers keep running; disable returns to normal lifecycle. Query with no args.
 - ask_user: Ask the user a question at a genuine decision point — posts a high-priority notification with inline reply; the answer arrives as the next user message. End your turn after asking. Use sparingly; prefer defaults for trivial choices.
 - lan_share: Serve a /var/minis/** directory over the local network (python3 http.server as a background job); returns http://<phone-ip>:<port>/ URLs for other devices.
 - web_fetch: Fetch a URL and return its main content as clean readable text (markdown-ish). Much faster than browser_use for reading articles/docs. raw_html=true for markup. NOT for JS-heavy or login-required pages (use browser_use).
@@ -10423,6 +10451,7 @@ File creation guidelines:
 - ICMP is blocked by the PRoot sandbox — `ping` will hang indefinitely. Use `curl` or `wget` to test network connectivity instead.
 - Also (BusyBox ash, NOT bash): `**` recursive glob (globstar) is NOT supported. Use `find <dir> -name '*.ext'` for recursive file search, and pipe to `xargs` for tools like `wc`. Brace expansion ({a,b,c}) and bash arrays (arr=(...), ${'$'}{arr[@]}) are also unsupported — use space-separated strings with a for loop or multiple arguments instead.
 - Python packages: many PyPI packages (numpy, pandas, scipy, pillow, etc.) lack musllinux_aarch64 wheels and will fail to build from source. Use Alpine's native packages instead: `apk search py3-<name>` then `apk add py3-numpy py3-pandas py3-matplotlib py3-pillow py3-scipy py3-requests`. Only fall back to `pip install` for pure-Python packages not available via apk. For matplotlib, always set `matplotlib.use('Agg')` before importing pyplot — there is no display server in the sandbox.
+- Session bootstrap: at the start of a NEW session, read /var/minis/shared/keepalive/SESSION-BOOTSTRAP.md if it exists — it contains the restoration protocol (env vars to check, SSH key state, project state) written by previous sessions. shared/ survives sandbox resets.
 - Background services: for anything long-running (servers, watchers, downloads), use the job_start tool — it runs detached with output captured to a log you can poll with job_poll and stop with job_kill. Plain `&` inside shell_execute is NOT reliable: background processes started that way die silently when the shell command finishes. If you must inline one, redirect stdout/stderr and write the pid (e.g. `python3 -m http.server 8765 > /dev/null 2>&1 & echo $! > /tmp/srv.pid`), but prefer job_start.
 - File search: when looking for user files, do NOT scan the whole filesystem. Search under /var/minis/ first (workspace/attachments/shared for the current session, mounts/* for user-provided external folders). Only widen the scope if the file is clearly not under /var/minis/.
 

@@ -450,6 +450,52 @@ class PersistentShell(
     }
 
     /**
+    /**
+     * [T-beast-round2] Timeout kill: a timed-out command must not keep running
+     * forever. The persistent shell itself must survive (other sessions /
+     * later commands depend on it), so we kill only the DESCENDANTS of the
+     * persistent sh — discovered by walking /proc parent links from the shell
+     * PID (Android-side /proc sees the PRoot namespace: libproot.so and its
+     * children appear normally).
+     */
+    private fun killDescendants(reason: String) {
+        val shellPid = process?.pid() ?: return
+        try {
+            val ppidByPid = mutableMapOf<Int, Int>()
+            for (f in java.io.File("/proc").listFiles() ?: return) {
+                val pid = f.name.toIntOrNull() ?: continue
+                try {
+                    val stat = java.io.File(f, "stat").readText()
+                    val after = stat.substringAfterLast(") ")
+                    val ppid = after.split(" ").getOrNull(1)?.toIntOrNull() ?: continue
+                    ppidByPid[pid] = ppid
+                } catch (_: Exception) { /* racing exit — fine */ }
+            }
+            val descendants = ppidByPid.keys.filter { pid ->
+                var cur: Int? = pid
+                var hops = 0
+                while (cur != null && cur != shellPid && hops < 16) {
+                    cur = ppidByPid[cur]
+                    hops++
+                }
+                cur == shellPid && pid != shellPid
+            }
+            if (descendants.isEmpty()) return
+            Log.w(TAG, "[T-beast-round2] killing ${descendants.size} descendant(s) of shell $shellPid: $reason")
+            for (pid in descendants.sortedDescending()) {
+                try {
+                    android.system.Os.killpg(pid, android.system.OsConstants.SIGKILL)
+                } catch (_: Exception) { /* not a leader / ESRCH — fall through */ }
+                try {
+                    android.system.Os.kill(pid, android.system.OsConstants.SIGKILL)
+                } catch (_: Exception) { /* racing exit — best effort */ }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[T-beast-round2] killDescendants failed: ${e.message}")
+        }
+    }
+
+    /**
      * Execute a command in the persistent shell and wait for completion.
      *
      * Wraps the command with a unique marker to detect output boundaries:
@@ -491,7 +537,7 @@ class PersistentShell(
         // heavyweight tooling (java needs huge VAS); `unset` restores 2 GiB.
         // Re-applied per command — a bad limit from one call cannot poison
         // later ones.
-        val wrappedCommand = "ulimit -v \${MINIS_RLIMIT_AS_KB:-2097152} 2>/dev/null; $command\necho \"__MINIS_DONE_${marker}_EXIT_\$?__\"\n"
+        val wrappedCommand = "ulimit -S -v \${MINIS_RLIMIT_AS_KB:-2097152} 2>/dev/null; $command\necho \"__MINIS_DONE_${marker}_EXIT_\$?__\"\n"
 
         return withContext(Dispatchers.IO) {
             val result = withTimeoutOrNull(timeout) {
@@ -524,9 +570,15 @@ class PersistentShell(
             }
 
             if (result == null) {
-                // Timeout — cancel pending, but don't kill the shell
+                // Timeout — cancel pending. [T-beast-round2] The wedged
+                // command's processes are now killed (descendants of the
+                // persistent shell only — the shell itself survives), so a
+                // runaway build/recon cannot hold the session's mutex hostage
+                // forever. The RLIMIT_AS guard already prevents most wedges;
+                // this closes the rest (e.g. infinite loop under the cap).
+                killDescendants("command timeout ${timeout / 1000}s")
                 pendingCallback = null
-                Pair("[Command timed out after ${timeout / 1000}s]", 124)
+                Pair("[Command timed out after ${timeout / 1000}s (processes killed)]", 124)
             } else {
                 result
             }

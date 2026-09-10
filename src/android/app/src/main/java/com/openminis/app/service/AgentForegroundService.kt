@@ -276,10 +276,18 @@ class AgentForegroundService : Service() {
         // longer a reason to keep alive — they explicitly dismissed
         // the app, so clear presence here and re-evaluate.
         SessionActivityTracker.clearPresence()
-        if (SessionActivityTracker.activeSessions.value.isEmpty()) {
+        if (SessionActivityTracker.activeSessions.value.isEmpty() &&
+            // [T-beast-round2] an agent-requested keep-alive outranks the
+            // swipe-away: watchers / storefront bots must survive dismissal.
+            // The user keeps the real off-switch via the notification's Stop
+            // action (which clears the flag), so this can't trap them.
+            !SessionActivityTracker.keepAliveRequested.value) {
             Log.d(TAG, "onTaskRemoved with no active sessions, stopping self")
             stopSelf()
             return
+        }
+        if (SessionActivityTracker.keepAliveRequested.value) {
+            Log.i(TAG, "[T-beast-round2] onTaskRemoved: keep-alive requested — service survives swipe-away")
         }
         Log.d(TAG, "onTaskRemoved with ${SessionActivityTracker.activeSessions.value.size} active session(s) — keeping service alive")
         // Re-issue the foreground notification with current state so the

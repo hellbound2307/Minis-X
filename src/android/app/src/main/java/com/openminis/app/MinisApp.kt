@@ -237,6 +237,9 @@ class MinisApp : Application(), ImageLoaderFactory {
     }
 
     override fun onCreate() {
+        // [T-beast-round2] Restore the agent's keep-alive request (watchers,
+        // storefront bots) before any service decision can be made.
+        com.openminis.app.service.SessionActivityTracker.loadKeepAlive(this)
         super.onCreate()
 
         // T287-followup: ACRA spawns a separate reporter process named
