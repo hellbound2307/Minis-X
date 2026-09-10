@@ -450,7 +450,6 @@ class PersistentShell(
     }
 
     /**
-    /**
      * [T-beast-round2] Timeout kill: a timed-out command must not keep running
      * forever. The persistent shell itself must survive (other sessions /
      * later commands depend on it), so we kill only the DESCENDANTS of the
