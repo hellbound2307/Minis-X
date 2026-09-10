@@ -483,7 +483,15 @@ class PersistentShell(
         }
 
         val marker = UUID.randomUUID().toString().take(8)
-        val wrappedCommand = "$command\necho \"__MINIS_DONE_${marker}_EXIT_\$?__\"\n"
+        // [T-beast-blockers] RLIMIT_AS guard: every command runs with an
+        // address-space cap (default 2 GiB) so one greedy process (jadx on a
+        // big dex, a runaway python heap) fails fast with ENOMEM instead of
+        // wedging the whole PRoot sandbox and every session with it.
+        // Guest override: `export MINIS_RLIMIT_AS_KB=8000000` raises it for
+        // heavyweight tooling (java needs huge VAS); `unset` restores 2 GiB.
+        // Re-applied per command — a bad limit from one call cannot poison
+        // later ones.
+        val wrappedCommand = "ulimit -v \${MINIS_RLIMIT_AS_KB:-2097152} 2>/dev/null; $command\necho \"__MINIS_DONE_${marker}_EXIT_\$?__\"\n"
 
         return withContext(Dispatchers.IO) {
             val result = withTimeoutOrNull(timeout) {

@@ -166,7 +166,7 @@ object AgentTools {
             "Default timeout is 15 minutes.",
         parameters = mapOf(
             "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Install Python data analysis packages', 'List files in home directory'). Use the same language as the user."),
-            "command" to AgentToolParam("string", "The shell command to execute. Supports multi-line commands directly — no special escaping needed. Keep under 4000 chars; for longer scripts, write to a file with file_write first, then run it."),
+            "command" to AgentToolParam("string", "The shell command to execute. Supports multi-line commands directly — no special escaping needed. Up to ~32k chars (hard cap 64k). For longer scripts, write to a file with file_write first, then run it. Every command runs under a 2 GiB address-space guard (ulimit -v) — export MINIS_RLIMIT_AS_KB=<kb> (e.g. 8000000) for heavyweight tools like java, unset to restore."),
             "timeout" to AgentToolParam("integer", "Timeout in seconds (default: 900). Use a larger value for long-running commands like package installs."),
             "delay" to AgentToolParam("integer", "Delay in seconds before execution begins. The tool blocks the agent flow during this wait WITHOUT occupying the shell, so other concurrent tasks can use it. Use this instead of sleep commands to avoid resource contention."),
         ),
@@ -334,7 +334,7 @@ object AgentTools {
             "later job_poll to see if it is ready, then curl it from shell_execute.",
         parameters = mapOf(
             "tool_title" to AgentToolParam("string", "A concise 5-10 word summary (e.g. 'Start dev server in background')."),
-            "command" to AgentToolParam("string", "The command to run detached. Multi-line is fine; it is written to a script file and executed with sh. Keep under 4000 chars."),
+            "command" to AgentToolParam("string", "The command to run detached. Multi-line is fine; it is written to a script file and executed with sh. Up to ~32k chars (hard cap 64k)."),
             "label" to AgentToolParam("string", "Optional short label shown in job_poll listings. Defaults to the first words of command."),
         ),
         required = listOf("tool_title", "command"),

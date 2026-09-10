@@ -197,7 +197,10 @@ object JobTools {
         return (
             "mkdir -p $JOBS_DIR && " +
                 "echo $b64 | base64 -d > $JOBS_DIR/$id.cmd && " +
-                "{ setsid sh -c 'sh $JOBS_DIR/$id.cmd > $JOBS_DIR/$id.log 2>&1; " +
+                "{ setsid sh -c 'ulimit -v \${MINIS_RLIMIT_AS_KB:-2097152} 2>/dev/null; " +
+                // [T-beast-blockers] detached jobs inherit the same RLIMIT_AS guard;
+                // the inner sh -c expands the default (2 GiB) or the guest override.
+                "sh $JOBS_DIR/$id.cmd > $JOBS_DIR/$id.log 2>&1; " +
                 "echo $? > $JOBS_DIR/$id.code' < /dev/null > /dev/null 2>&1 & " +
                 "echo $! > $JOBS_DIR/$id.pid; " +
                 "kill -0 \"$(cat $JOBS_DIR/$id.pid)\" 2>/dev/null && echo STARTED:$(cat $JOBS_DIR/$id.pid); }"
