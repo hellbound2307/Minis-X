@@ -44,6 +44,11 @@ class PersistentShell(
     @Volatile
     private var process: Process? = null
 
+    // [T-beast-round2] Host pid of the proot process wrapping the persistent
+    // sh. Process.pid() is Java 9+ and unavailable on Android, so we capture
+    // it by diffing children of the app process before/after spawn.
+    @Volatile private var prootPid: Int = -1
+
     @Volatile
     private var stdinWriter: BufferedWriter? = null
 
@@ -253,8 +258,34 @@ class PersistentShell(
             env[SeccompFallbackPolicy.NO_SECCOMP_ENV] = SeccompFallbackPolicy.NO_SECCOMP_VALUE
         }
 
+        // [T-beast-round2] Identify the new proot child by diffing the child
+        // set of the app process across spawn (no public pid API on Android).
+        val preChildren = HashSet<Int>()
+        try {
+            val my = android.os.Process.myPid()
+            for (f in java.io.File("/proc").listFiles() ?: emptyArray()) {
+                val pid = f.name.toIntOrNull() ?: continue
+                try {
+                    val after = java.io.File(f, "stat").readText().substringAfterLast(") ")
+                    if (after.split(" ").getOrNull(1)?.toIntOrNull() == my) preChildren.add(pid)
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
         val p = processBuilder.start()
         process = p
+        try {
+            val my = android.os.Process.myPid()
+            for (f in java.io.File("/proc").listFiles() ?: emptyArray()) {
+                val pid = f.name.toIntOrNull() ?: continue
+                if (pid in preChildren || pid == my) continue
+                try {
+                    val after = java.io.File(f, "stat").readText().substringAfterLast(") ")
+                    if (after.split(" ").getOrNull(1)?.toIntOrNull() == my) prootPid = pid
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+        com.openminis.app.logging.AppLogger.info("PersistentShell",
+            "[T-beast-round2] spawn: proot pid=$prootPid (pre ${preChildren.size} siblings)")
         stdinWriter = BufferedWriter(OutputStreamWriter(p.outputStream, StandardCharsets.UTF_8))
 
         // Start background reader thread
@@ -451,40 +482,46 @@ class PersistentShell(
 
     /**
      * [T-beast-round2] Timeout kill: a timed-out command must not keep running
-     * forever. The persistent shell itself must survive (other sessions /
-     * later commands depend on it), so we kill only the DESCENDANTS of the
-     * persistent sh — discovered by walking /proc parent links from the shell
-     * PID (Android-side /proc sees the PRoot namespace: libproot.so and its
-     * children appear normally).
+     * forever, but the persistent shell itself AND detached jobs must survive.
+     * Strategy: find the persistent sh (direct child of prootPid), walk /proc
+     * parent links, and SIGKILL the sh's descendants that share the sh's
+     * SESSION — the wedged command's processes inherit the sh's session,
+     * while setsid-detached jobs (job_start) live in their own sessions and
+     * are left alone. Leaves-first so nothing re-spawns mid-kill.
      */
     private fun killDescendants(reason: String) {
-        val shellPid = process?.pid() ?: return
+        val proot = prootPid
+        if (proot <= 0) return
         try {
-            val ppidByPid = mutableMapOf<Int, Int>()
+            // pid -> (ppid, session)
+            data class P(val ppid: Int, val session: Int)
+            val table = mutableMapOf<Int, P>()
             for (f in java.io.File("/proc").listFiles() ?: return) {
                 val pid = f.name.toIntOrNull() ?: continue
                 try {
-                    val stat = java.io.File(f, "stat").readText()
-                    val after = stat.substringAfterLast(") ")
-                    val ppid = after.split(" ").getOrNull(1)?.toIntOrNull() ?: continue
-                    ppidByPid[pid] = ppid
+                    val after = java.io.File(f, "stat").readText().substringAfterLast(") ")
+                    val parts = after.split(" ")
+                    val ppid = parts.getOrNull(1)?.toIntOrNull() ?: continue
+                    val session = parts.getOrNull(3)?.toIntOrNull() ?: continue
+                    table[pid] = P(ppid, session)
                 } catch (_: Exception) { /* racing exit — fine */ }
             }
-            val descendants = ppidByPid.keys.filter { pid ->
-                var cur: Int? = pid
+            // Persistent sh = direct child of proot (stable across commands).
+            val shPid = table.entries.firstOrNull { it.value.ppid == proot }?.key ?: return
+            val shSession = table[shPid]?.session ?: return
+            // Descendants of sh sharing its session (the wedged command tree).
+            val doomed = table.keys.filter { pid ->
+                if (pid == shPid) return@filter false
+                val p = table[pid] ?: return@filter false
+                if (p.session != shSession) return@filter false
+                var cur: Int? = p.ppid
                 var hops = 0
-                while (cur != null && cur != shellPid && hops < 16) {
-                    cur = ppidByPid[cur]
-                    hops++
-                }
-                cur == shellPid && pid != shellPid
+                while (cur != null && cur != shPid && hops < 16) { cur = table[cur]?.ppid; hops++ }
+                cur == shPid
             }
-            if (descendants.isEmpty()) return
-            Log.w(TAG, "[T-beast-round2] killing ${descendants.size} descendant(s) of shell $shellPid: $reason")
-            for (pid in descendants.sortedDescending()) {
-                try {
-                    android.system.Os.killpg(pid, android.system.OsConstants.SIGKILL)
-                } catch (_: Exception) { /* not a leader / ESRCH — fall through */ }
+            if (doomed.isEmpty()) return
+            Log.w(TAG, "[T-beast-round2] killing ${doomed.size} descendant(s) of sh $shPid (session $shSession): $reason")
+            for (pid in doomed.sortedDescending()) {
                 try {
                     android.system.Os.kill(pid, android.system.OsConstants.SIGKILL)
                 } catch (_: Exception) { /* racing exit — best effort */ }
