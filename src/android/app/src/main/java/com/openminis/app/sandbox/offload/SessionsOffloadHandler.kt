@@ -1,13 +1,20 @@
 package com.openminis.app.sandbox.offload
 
+import com.openminis.app.data.db.MessageEntity
 import com.openminis.app.data.repository.ChatRepository
 import com.openminis.app.logging.AppLogger
+import android.content.Context
 import com.openminis.app.sandbox.NativeOffloadHandler
 import com.openminis.app.sandbox.NativeOffloadRequest
 import com.openminis.app.sandbox.NativeOffloadResult
+import com.openminis.app.sandbox.PRootKernel
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedWriter
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -36,6 +43,10 @@ import java.util.TimeZone
  */
 class SessionsOffloadHandler(
     private val repo: ChatRepository,
+    // [T-android-sessions-export] Application context for resolving the
+    // caller session's own host dirs (sessionScopedHostFile) — the same
+    // pattern ModelUseOffloadHandler uses for --output writes.
+    private val context: Context,
 ) : NativeOffloadHandler {
 
     override fun handle(request: NativeOffloadRequest): NativeOffloadResult {
@@ -55,11 +66,12 @@ class SessionsOffloadHandler(
                 "list" -> cmdList(args)
                 "search" -> cmdSearch(args)
                 "messages" -> cmdMessages(args)
+                "export" -> cmdExport(args, request)
                 else -> {
                     val err = errorEnvelope(
                         sub,
                         "INVALID_ARGS",
-                        "Unknown command '$sub'. Valid: list, search, messages. " +
+                        "Unknown command '$sub'. Valid: list, search, messages, export. " +
                             "Use --help for details.",
                     )
                     NativeOffloadResult(
@@ -217,6 +229,229 @@ class SessionsOffloadHandler(
         return emit("messages", data, args)
     }
 
+    /**
+     * [T-android-sessions-export] `minis-sessions-cli export` — stream a
+     * session's full structured trajectory (raw parts_json per message:
+     * text parts, toolUse calls with model-supplied args, toolResult
+     * outputs with success flags, reasoning) to a file under /var/minis/.
+     *
+     * Why a file and not stdout: the offload reply socket caps a single
+     * result string at 1 MiB (NativeOffload.writeFrame), while one long
+     * agent session's parts_json can run tens of MB. The handler writes
+     * straight to the guest-visible filesystem (same pattern as
+     * minis-model-use --output) and returns a small summary envelope.
+     *
+     * Output shape — JSONL, one JSON object per line:
+     *   {"message_id","role","created_at"(UTC ISO),"sort_order","model_id",
+     *    "parts":[...]}     // parts = parsed parts_json array, verbatim
+     *
+     * The `parts` array preserves the on-disk part shapes: {type:"text",
+     * value}, {type:"toolUse", value:{toolUseId,name,input,...}},
+     * {type:"toolResult", value:{toolUseId,name,output,success,...}},
+     * {type:"mediaRef",...}, {type:"thinking",...}. That makes each
+     * session export a lossless training/eval artifact: (state → action →
+     * observation) tuples are recoverable by pairing toolUse.toolUseId
+     * with toolResult.toolUseId, in sort_order sequence.
+     *
+     * Two output formats:
+     *   --format jsonl  (default) one message per line, as above
+     *   --format meta   session header + message metas only (id/role/
+     *                  created_at/sort_order/model_id + per-message part
+     *                  type counts) — cheap full-index scans
+     *
+     * Redaction is NOT done here — the export is lossless by design.
+     * Scrubbing secrets is the consumer's job (a redaction pass belongs
+     * to the dataset pipeline that ingests these files, stage 1, run
+     * inside the sandbox before anything leaves the device).
+     */
+    private fun cmdExport(args: OffloadArgs, request: NativeOffloadRequest): NativeOffloadResult {
+        val sessionId = args.get("id")?.takeIf { it.isNotBlank() }
+            ?: return exportError(
+                "export",
+                "INVALID_ARGS",
+                "--id <session_id> is required. Use 'list' first to find session IDs.",
+                args,
+            )
+        val format = (args.get("format") ?: "jsonl").lowercase()
+        if (format != "jsonl" && format != "meta") {
+            return exportError(
+                "export",
+                "INVALID_ARGS",
+                "--format must be 'jsonl' or 'meta' (got '$format').",
+                args,
+            )
+        }
+        // Absolute guest paths only — mirrors minis-model-use's
+        // invalid_output_path handling. A relative path would land in
+        // the rootfs root where the next sandbox reset wipes it.
+        val outPath = args.get("out")?.takeIf { it.isNotBlank() }
+            ?: return exportError(
+                "export",
+                "INVALID_ARGS",
+                "--out <absolute_path> is required (e.g. /var/minis/workspace/traj.jsonl).",
+                args,
+            )
+        if (!outPath.startsWith("/var/minis/")) {
+            return exportError(
+                "export",
+                "INVALID_ARGS",
+                "--out must be an absolute path under /var/minis/ (workspace|shared|offloads|attachments). " +
+                    "Got '$outPath'.",
+                args,
+            )
+        }
+
+        val total = runBlocking { repo.messageCount(sessionId) }
+        if (total == 0) {
+            return exportError(
+                "export",
+                "NOT_FOUND",
+                "Session '$sessionId' has 0 messages (unknown id, or empty session).",
+                args,
+            )
+        }
+
+        // Resolve guest path → host path. Prefer the caller session's own
+        // scoped dir (attachments/offloads/workspace/browser) so a stale
+        // global mount can't redirect the write into another session's
+        // tree; fall back to the global resolver (covers /var/minis/shared,
+        // /var/minis/memory, /var/minis/projects which are global mounts).
+        val hostFile = sessionScopedHostFile(outPath, request.sessionId)
+            ?: PRootKernel.resolveHostPath(outPath)
+            ?: return exportError(
+                "export",
+                "INTERNAL",
+                "Cannot resolve --out '$outPath' to a host path.",
+                args,
+            )
+        hostFile.parentFile?.mkdirs()
+
+        val written = runBlocking {
+            exportStreamToFile(repo, sessionId, format, hostFile)
+        }
+
+        // Ops summary for the agent — small enough for the reply socket.
+        return emit(
+            "export",
+            JSONObject()
+                .put("session_id", sessionId)
+                .put("format", format)
+                .put("path", outPath)
+                .put("host_bytes", hostFile.length())
+                .put("messages", written)
+                .put("total", total),
+            args,
+        )
+    }
+
+    /** Resolve a /var/minis/<sub>/... guest path to the caller session's own
+     *  host dir (bypasses the last-writer-wins global bind-mount map).
+     *  Same logic as ModelUseOffloadHandler.sessionScopedHostFile. */
+    private fun sessionScopedHostFile(linuxPath: String, sessionId: String?): File? {
+        if (sessionId == null) return null
+        val m = Regex("^/var/minis/(attachments|offloads|workspace|browser)(/.*)?$").find(linuxPath)
+            ?: return null
+        val sub = m.groupValues[1]
+        val rest = m.groupValues[2].removePrefix("/")
+        val base = File(context.filesDir, "minis-sessions/$sessionId/$sub")
+        return if (rest.isEmpty()) base else File(base, rest)
+    }
+
+    /** Streaming core: page through the session in [EXPORT_BATCH] batches and
+     *  write one JSON object per line. Batching keeps a long session from
+     *  materializing all parts_json payloads in memory at once (the same
+     *  reason ChatExporter paginates at 200). */
+    private suspend fun exportStreamToFile(
+        repo: ChatRepository,
+        sessionId: String,
+        format: String,
+        hostFile: File,
+    ): Int {
+        val isoFmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        var written = 0
+        OutputStreamWriter(FileOutputStream(hostFile), Charsets.UTF_8).use { raw ->
+            BufferedWriter(raw, EXPORT_BUFFER).use { w ->
+                var offset = 0
+                while (true) {
+                    val batch = repo.loadMessagePageRaw(sessionId, offset, EXPORT_BATCH)
+                    if (batch.isEmpty()) break
+                    for (e in batch) {
+                        when (format) {
+                            "meta" -> {
+                                val partCounts = countPartTypes(e.partsJson)
+                                val obj = JSONObject()
+                                    .put("message_id", e.id)
+                                    .put("role", e.role)
+                                    .put("created_at", isoFmt.format(Date(e.createdAt)))
+                                    .put("sort_order", e.sortOrder)
+                                if (e.modelId != null) obj.put("model_id", e.modelId)
+                                obj.put("part_types", partCounts)
+                                w.write(obj.toString())
+                                w.write("\n")
+                            }
+                            else -> {
+                                // jsonl: parse parts_json once so the line is
+                                // guaranteed valid JSON. Bad legacy rows get a
+                                // text part with the raw payload instead of
+                                // breaking the whole export.
+                                val partsArr: JSONArray = try {
+                                    JSONArray(e.partsJson)
+                                } catch (bad: Exception) {
+                                    JSONArray().put(
+                                        JSONObject()
+                                            .put("type", "text")
+                                            .put("value", e.partsJson)
+                                            .put("unparseable", true),
+                                    )
+                                }
+                                val obj = JSONObject()
+                                    .put("message_id", e.id)
+                                    .put("role", e.role)
+                                    .put("created_at", isoFmt.format(Date(e.createdAt)))
+                                    .put("sort_order", e.sortOrder)
+                                if (e.modelId != null) obj.put("model_id", e.modelId)
+                                if (e.reasoningContent != null) obj.put("reasoning_content", e.reasoningContent)
+                                obj.put("parts", partsArr)
+                                w.write(obj.toString())
+                                w.write("\n")
+                            }
+                        }
+                        written++
+                    }
+                    offset += batch.size
+                }
+            }
+        }
+        return written
+    }
+
+    /** Count part types in a parts_json payload without materializing more
+     *  than the type strings. meta format only. */
+    private fun countPartTypes(partsJson: String): JSONObject {
+        val counts = JSONObject()
+        try {
+            val arr = JSONArray(partsJson)
+            for (i in 0 until arr.length()) {
+                val t = arr.optJSONObject(i)?.optString("type") ?: "?"
+                counts.put(t, counts.optInt(t) + 1)
+            }
+        } catch (_: Exception) {
+            counts.put("unparseable", 1)
+        }
+        return counts
+    }
+
+    private fun exportError(action: String, code: String, msg: String, args: OffloadArgs): NativeOffloadResult {
+        val err = errorEnvelope(action, code, msg)
+        return NativeOffloadResult(
+            if (code == "NOT_FOUND") 1 else EXIT_INVALID_ARGS,
+            OffloadOutput.formatBody(err.toString(2), args) + "\n" + HELP_TEXT,
+        )
+    }
+
+
     // ─── arg parsing helpers ──────────────────────────────────────────
 
     private fun parseIds(args: OffloadArgs): List<String>? {
@@ -292,6 +527,12 @@ class SessionsOffloadHandler(
         private const val DEFAULT_LIMIT = 50
         private const val MAX_LIMIT = 100
 
+        // [T-android-sessions-export] Streaming exports paginate at the
+        // ChatExporter page size — keeps parts_json batches small in
+        // memory while amortizing the DAO round-trip.
+        private const val EXPORT_BATCH = 200
+        private const val EXPORT_BUFFER = 256 * 1024
+
         // iOS NOFF_EXIT_INVALID_ARGS — the shell convention is exit 2
         // for invalid CLI args, distinct from exit 1 for runtime errors.
         private const val EXIT_INVALID_ARGS = 2
@@ -309,16 +550,23 @@ COMMANDS:
   list      List recent sessions (default: 50, max: 100)
   search    Search message content across sessions (requires --keywords)
   messages  Read messages from a specific session (requires --id)
+  export    Write a session's full structured trajectory to a file
+            (requires --id and --out; lossless toolUse/toolResult parts)
 
 OPTIONS:
   --keywords <words>    Space-separated keywords (AND logic, required for search)
   --ids <id1,id2,...>   Filter by comma-separated session IDs (list/search)
-  --id <session_id>     Session ID to read messages from (messages)
+  --id <session_id>     Session ID to read messages from (messages/export)
   --full                (messages only) Return full message text up to 50000 chars
   --offset <n>          Skip first n messages, 0-based (default: 0)
   --start <YYYY-MM-DD>  Filter results after this date (inclusive)
   --end <YYYY-MM-DD>    Filter results before this date (inclusive, end of day)
   --limit <n>           Max results (default: 50, max: 100)
+  --format <jsonl|meta> (export only) jsonl = one message per line with full
+                        parts array; meta = message metas + part-type counts
+                        only (cheap full-index scans). Default: jsonl
+  --out <path>          (export only) Absolute output path under /var/minis/
+                        (workspace|shared|offloads|attachments). Required.
   --help, -h            Show this help message
   --compact             Minimize JSON output
   -q, --quiet           Output only data field
@@ -337,11 +585,24 @@ OUTPUT (messages):
   "truncated": true. Response also includes: session_id, offset, limit, full,
   max_chars, total (total message count).
 
+OUTPUT (export):
+  Returns a summary: session_id, format, path, host_bytes, messages (lines
+  written), total. The file itself is JSONL — one JSON object per line:
+  {"message_id","role","created_at" (UTC ISO),"sort_order","model_id",
+  "parts":[...]} where parts preserves the on-disk shapes (text / toolUse
+  with model-supplied input args / toolResult with output+success /
+  mediaRef / thinking). Pair toolUse.toolUseId with toolResult.toolUseId
+  and sort_order gives lossless (state -> action -> observation) tuples.
+  NOTE: export is lossless and NOT redacted — scrub secrets in a pipeline
+  stage before any data leaves the device.
+
 WORKFLOW:
   1. Use 'list' or 'list --keywords <topic>' to find relevant sessions
   2. Use 'search --keywords <terms>' to find specific messages
   3. Use 'messages --id <session_id>' to read a conversation
   4. Use --offset to paginate through long conversations
+  5. Use 'export --id <session_id> --out /var/minis/workspace/t.jsonl' to
+     pull the full structured trajectory for dataset/eval work
 
 EXAMPLES:
   minis-sessions-cli list
@@ -353,6 +614,8 @@ EXAMPLES:
   minis-sessions-cli messages --id <session_id>
   minis-sessions-cli messages --id <session_id> --full
   minis-sessions-cli messages --id <session_id> --offset 20 --limit 10
+  minis-sessions-cli export --id <session_id> --out /var/minis/workspace/s1.jsonl
+  minis-sessions-cli export --id <session_id> --format meta --out /var/minis/shared/idx.jsonl
 """
     }
 }
