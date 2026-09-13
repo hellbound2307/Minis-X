@@ -249,9 +249,14 @@ object PyMetaToolStore {
     fun delete(context: Context, name: String): Boolean {
         val trimmed = name.trim()
         if (!cache.containsKey(trimmed)) return false
+        // Lambda must END on a Boolean expression: `removeFromRegistry` returns
+        // Unit, so without the trailing `true` the runCatching infers
+        // Result<Unit> and getOrDefault(false) widens `removed` to Any — the
+        // exact compile error CI caught (258:16 return type mismatch).
         val removed = runCatching {
             codeFile(context, trimmed).delete()
             removeFromRegistry(context, trimmed)
+            true
         }.getOrDefault(false)
         cache.remove(trimmed)
         _tools.value = _tools.value.filter { it.name != trimmed }
