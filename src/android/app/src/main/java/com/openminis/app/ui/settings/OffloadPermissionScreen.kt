@@ -521,6 +521,7 @@ private fun AgentToolPermissionRow(
     }
 }
 
+@Composable
 private fun toolTitle(tool: OffloadPermissionManager.ToolPermissionInfo): String {
     val res = toolTitleRes(tool.toolName)
     if (res == 0) return tool.displayName
