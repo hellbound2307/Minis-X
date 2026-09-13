@@ -7565,6 +7565,16 @@ class ChatViewModel(
         // we surface a real error instead of a silent blank bubble. Mirrors iOS
         // AIChatViewModel.didInjectEmptyToolReminderThisRun.
         var didInjectEmptyToolReminder = false
+        // [T-context-error-classifier] One-shot per agent loop (not per
+        // turn): the context-overflow compact-and-retry recovery must fire
+        // at most ONCE per runAgentLoop. A second overflow after a
+        // successful compact means the window is genuinely too small for
+        // this task (or the sub-model that does the summarizing is itself
+        // erroring) — retrying compaction in a tight loop is the exact
+        // slow-thrash shape the runaway backstops exist to prevent. Second
+        // occurrence falls through to the terminal path with a clean
+        // message.
+        var didOverflowRecoverThisTurn = false
         // [T-android-readaloud-stop-stale] One-shot per REPLY (not per turn):
         // the first text delta stops any Read Aloud still playing from the
         // previous reply. Scoped outside the turn loop so a tool-loop reply
@@ -8308,9 +8318,73 @@ class ChatViewModel(
                 } catch (e: Exception) {
                     if (e is CancellationException && e.cause == null) throw e  // real job cancellation
                     val actual = unwrapFlowException(e)
-                    val isRateLimit = actual is com.openminis.app.data.model.LLMError.RateLimited
+                    var isRateLimit = actual is com.openminis.app.data.model.LLMError.RateLimited
                     val is5xx = actual is com.openminis.app.data.model.LLMError.ProviderError &&
                         actual.detail.contains(Regex("[5][0-9]{2}"))
+                    // [T-context-error-classifier] Audit P0 #2: text-level
+                    // classification catches context-overflow errors that
+                    // arrive as generic ProviderError/Unknown bodies (every
+                    // provider words the refusal differently; the type-based
+                    // branches above can't see them). Overflow beats the
+                    // type branches — OpenRouter pads upstream context
+                    // errors inside 429-shaped envelopes.
+                    val errorClass = com.openminis.app.data.ContextErrorClassifier.classify(actual)
+                    if (errorClass == com.openminis.app.data.ContextErrorClassifier.ErrorClass.CONTEXT_OVERFLOW &&
+                        !didOverflowRecoverThisTurn
+                    ) {
+                        // One-shot in-turn recovery: compact (existing
+                        // summarize machinery, allowDuringProcessing since
+                        // we're mid-loop) and retry the SAME turn on the
+                        // SAME provider. The next streamMessage reads the
+                        // freshly-compacted effectiveAgentHistory
+                        // automatically. If the post-compact attempt ALSO
+                        // overflows, didOverflowRecoverThisTurn stays true
+                        // and we fall through to the terminal path with a
+                        // clean, actionable message instead of raw dump.
+                        didOverflowRecoverThisTurn = true
+                        val historySizeBefore = agentHistory.size
+                        AppLogger.info(
+                            TAG_STREAM,
+                            "[Context-Overflow] classified CONTEXT_OVERFLOW (history=$historySizeBefore) — compacting + retrying turn",
+                        )
+                        val compacted = awaitCompaction()
+                        if (compacted) {
+                            appendSystemInfo(
+                                text = com.openminis.app.data.ContextErrorClassifier.overflowBannerMessage(
+                                    historySizeBefore - agentHistory.size,
+                                ),
+                                iconKind = "compact",
+                            )
+                            // Roll back this turn's partial blocks + text so
+                            // the retried stream re-publishes cleanly (same
+                            // mechanics as the transient-retry path above).
+                            if (allToolBlocks.size > turnStartBlockIndex) {
+                                while (allToolBlocks.size > turnStartBlockIndex) {
+                                    allToolBlocks.removeAt(allToolBlocks.size - 1)
+                                }
+                            }
+                            turnTextSb.setLength(0)
+                            currentTextBlockSb = null
+                            turnTextBlockIdx = -1
+                            turnThinking.clear()
+                            toolCalls.clear()
+                            toolCallSignatures.clear()
+                            continue  // retry same turn with compacted history
+                        }
+                        // Compaction failed (sub-model down, empty history,
+                        // …) — surface the actionable message, not the raw
+                        // provider dump.
+                        throw com.openminis.app.data.model.LLMError.ProviderError(
+                            com.openminis.app.data.ContextErrorClassifier.overflowBannerMessage(0),
+                        )
+                    }
+                    if (errorClass == com.openminis.app.data.ContextErrorClassifier.ErrorClass.RATE_LIMIT && !isRateLimit) {
+                        // Text says rate-limit but the type branch didn't
+                        // catch it (wrapped body) — treat identically so
+                        // the fallback ladder engages.
+                        AppLogger.info(TAG_STREAM, "[Context-Classifier] text-level RATE_LIMIT fallback for typed ${actual.javaClass.simpleName}")
+                        isRateLimit = true
+                    }
                     // Auto-retry on transient network/5xx/transient errors on the SAME provider
                     // before considering a fallback (mirrors iOS streamWithAutoRetry).
                     // Rate limits are provider-level signals that should trigger fallback immediately,
