@@ -143,13 +143,25 @@ object PyMetaToolStore {
                 command = "python3 /usr/local/lib/minis-pytools/harness.py introspect $LINUX_DIR/$DRAFT_NAME",
                 timeout = 30_000L,
             )
+            // [T-py-meta-tools-hotfix2] introspectDraft spawns a FRESH proot
+            // per call (unlike persistent shells which absorb the banner once
+            // at creation), and redirectErrorStream(true) merges proot's own
+            // output — the "proot info: native_offload" banner BEFORE our
+            // JSON and the "talloc report" teardown noise AFTER it — into
+            // result.output. Do NOT require output to start with '{': instead
+            // scan for the first line that parses as a JSON object with an
+            // "ok" field; that line is the harness's introspection result.
+            // Same extraction contract as executePyTool below.
             val out = result.output.trim()
-            if (!out.startsWith("{")) {
+            val parsed: JSONObject? = result.output.lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith("{") && it.endsWith("}") }
+                .mapNotNull { line -> runCatching { JSONObject(line) }.getOrNull() }
+                .firstOrNull { it.has("ok") }
+            if (parsed == null) {
                 return null to "Introspection failed (exit ${result.exitCode}): " +
                     out.take(400).ifBlank { "no output" }
             }
-            val parsed = runCatching { JSONObject(out) }.getOrNull()
-                ?: return null to "Introspection returned invalid JSON: ${out.take(200)}"
             if (!parsed.optBoolean("ok", false)) {
                 val line = parsed.optInt("line", -1)
                 val lineNote = if (line > 0) " (line $line)" else ""
