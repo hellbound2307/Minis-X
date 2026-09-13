@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.Construction
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.FrontHand
@@ -92,6 +93,9 @@ fun SettingsScreen(
     // Agent Runtime section; default no-op for callers that haven't wired
     // the route yet.
     onSoulClick: () -> Unit = {},
+    // [T-pytools-manager] Minted Python tools manager row, Agent Runtime
+    // section between MCP Integrations and Environment Variables.
+    onPyToolsClick: () -> Unit = {},
     onPermissionsClick: () -> Unit = {},
     onUsageClick: () -> Unit = {},
     onAppearanceClick: () -> Unit = {},
@@ -209,6 +213,17 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_mcp),
                     subtitle = stringResource(R.string.settings_mcp_subtitle),
                     onClick = onMcpClick,
+                )
+                // [T-pytools-manager] Agent-minted Python tools — directly below
+                // MCP Integrations. Constructs icon (build/construct) reads as
+                // "assembled tools" and stays distinct from Skills' Extension
+                // puzzle piece and MCP's Dashboard grid.
+                SettingsItem(
+                    icon = Icons.Outlined.Construction,
+                    iconColor = Color(0xFFFF9500),
+                    title = stringResource(R.string.settings_pytools),
+                    subtitle = stringResource(R.string.settings_pytools_subtitle),
+                    onClick = onPyToolsClick,
                 )
                 SettingsItem(
                     icon = Icons.Outlined.Terminal,

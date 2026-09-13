@@ -173,6 +173,9 @@
     <!-- [T-mcp-integration-android] MCP Integrations settings entry + management screen -->
     <string name="settings_mcp">MCP Integrations</string>
     <string name="settings_mcp_subtitle">Connect Model Context Protocol servers</string>
+    <!-- [T-pytools-manager] Agent-minted Python tools manager. -->
+    <string name="settings_pytools">Minted Tools</string>
+    <string name="settings_pytools_subtitle">Python tools the agent creates on demand</string>
     <string name="mcp_title">MCP Integrations</string>
     <string name="mcp_add">Add MCP Server</string>
     <string name="mcp_edit">Edit MCP Server</string>

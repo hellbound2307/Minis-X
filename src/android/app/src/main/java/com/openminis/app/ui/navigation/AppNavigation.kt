@@ -159,6 +159,7 @@ object Routes {
     const val MCP = "mcp"
     /** [T-soul-md] SOUL.md editor. */
     const val SOUL = "soul"
+    const val PYTOOLS = "pytools"
     const val MEMORY_FILE_EDIT = "memory_file/{fileName}/{isGlobal}"
     const val PERMISSIONS = "permissions"
     /**
@@ -597,6 +598,7 @@ fun AppNavigation(
                 onMemoryClick = { navController.safeNavigate(Routes.MEMORY) },
                 onMcpClick = { navController.safeNavigate(Routes.MCP) },
                 onSoulClick = { navController.safeNavigate(Routes.SOUL) },
+                onPyToolsClick = { navController.safeNavigate(Routes.PYTOOLS) },
                 onPermissionsClick = { navController.safeNavigate(Routes.PERMISSIONS) },
                 onUsageClick = { navController.safeNavigate(Routes.USAGE_STATS) },
                 onAppearanceClick = { navController.safeNavigate(Routes.APPEARANCE) },
@@ -1300,6 +1302,13 @@ fun AppNavigation(
         // [T-soul-md] SOUL.md editor.
         composable(Routes.SOUL) {
             com.openminis.app.ui.settings.SoulSettingsScreen(
+                onBack = { navController.safePopBackStack() },
+            )
+        }
+
+        // [T-pytools-manager] Agent-minted Python tools manager.
+        composable(Routes.PYTOOLS) {
+            com.openminis.app.ui.settings.PyToolsScreen(
                 onBack = { navController.safePopBackStack() },
             )
         }

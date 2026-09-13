@@ -408,4 +408,36 @@ object PyMetaToolStore {
         if (!f.exists()) return null
         return runCatching { f.readText() }.getOrNull()
     }
+
+    /**
+     * [T-pytools-manager] Settings-screen fast path: flip enable/disable or
+     * adjust the timeout WITHOUT re-running introspection. The code is
+     * unchanged — re-validating it through a fresh PRoot proot would be pure
+     * latency (the introspection contract only guards writes of NEW code).
+     * Registry + cache + StateFlow are updated together so the very next
+     * `definitions()` read (which the ChatViewModel does per turn) reflects
+     * the new state immediately. Returns the updated tool, or null when the
+     * name isn't registered.
+     */
+    fun updateSettings(
+        context: Context,
+        name: String,
+        enabled: Boolean? = null,
+        timeoutSeconds: Int? = null,
+    ): PyTool? {
+        val trimmed = name.trim()
+        val current = cache[trimmed] ?: return null
+        val updated = current.copy(
+            isEnabled = enabled ?: current.isEnabled,
+            timeoutSeconds = (timeoutSeconds ?: current.timeoutSeconds).coerceIn(5, MAX_TIMEOUT_S),
+            updatedAt = System.currentTimeMillis(),
+        )
+        return runCatching {
+            upsertRegistry(context, updated)
+            cache[trimmed] = updated
+            _tools.value = _tools.value.map { if (it.name == trimmed) updated else it }
+            AppLogger.info(TAG, "pytool settings updated: name=$trimmed enabled=${updated.isEnabled} timeout=${updated.timeoutSeconds}s")
+            updated
+        }.getOrNull()
+    }
 }
