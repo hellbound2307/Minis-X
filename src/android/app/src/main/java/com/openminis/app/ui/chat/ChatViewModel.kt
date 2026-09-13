@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Extension
@@ -1790,6 +1791,16 @@ class ChatViewModel(
             title = "Compact",
             subtitle = "",
         ),
+        // [T-dream-prune] Audit P0 #3: manual Dream review pass — reads
+        // memory files, asks the model for surgical prune operations,
+        // snapshot-protected. No background timer (phone: battery/data;
+        // scheduled work belongs to the watchdog item).
+        SlashCommand(
+            id = "dream",
+            icon = Icons.Default.NightsStay,
+            title = "Dream",
+            subtitle = "",
+        ),
         SlashCommand(
             id = "memory",
             icon = Icons.Default.Psychology,
@@ -1860,6 +1871,7 @@ class ChatViewModel(
 
         when (cmd.id) {
             "compact" -> compactAll()
+            "dream" -> runDreamPass()
             "memory" -> toggleMemoryEnabled()
             "thinking" -> toggleThinking()
             "clear" -> _clearChatConfirmRequested.value = true
@@ -2083,6 +2095,100 @@ class ChatViewModel(
         var started = false
         compactAllImpl(anchorIdxOverride, allowDuringProcessing, onFinished) { started = true }
         if (!started) onFinished?.invoke(false)
+    }
+
+    /**
+     * [T-dream-prune] Audit P0 #3 — manual Dream pass: surgical memory
+     * pruning. Snapshot → manifest → model plan → apply → report.
+     * Runs on viewModelScope; refuses while streaming/compacting (same
+     * guards as compactAll). The model call is a single non-streaming
+     * sendMessage — the SAME provider path compaction uses (single
+     * execution surface, the vc43 lesson).
+     */
+    private fun runDreamPass() {
+        if (_isStreaming.value || _isCompacting.value) {
+            appendSystemInfo(
+                text = "Cannot run Dream while a turn or compaction is in progress.",
+                iconKind = "compact",
+            )
+            return
+        }
+        val repo = memoryRepository ?: run {
+            appendSystemInfo("Memory not available — cannot run Dream.", "compact")
+            return
+        }
+        val provider = currentProvider ?: run {
+            appendSystemInfo("No provider configured. Cannot run Dream.", "compact")
+            return
+        }
+        val memoryDir = repo.dir
+        viewModelScope.launch {
+            _isCompacting.value = true // reuse the compacting guard: one memory-mutating pass at a time
+            try {
+                val manifest = com.openminis.app.data.repository.MemoryDreamPass.buildManifest(
+                    memoryDir, includeGlobal = false,
+                )
+                if (manifest.isEmpty()) {
+                    appendSystemInfo("Dream: nothing to review — no prunable memory files.", "compact")
+                    return@launch
+                }
+                // Snapshot BEFORE the pass (best-effort; disclosed if failed)
+                val snap = com.openminis.app.data.repository.MemoryDreamPass.snapshot(memoryDir)
+                // Render manifest for the planner
+                val manifestText = manifest.joinToString("\n\n") { fm ->
+                    buildString {
+                        append("=== FILE: ${fm.name} (${fm.lines} lines, showing ${fm.reviewedLines}")
+                        if (fm.truncated) append(", TRUNCATED-HEAD: only shown lines are editable")
+                        append(") ===\n")
+                        append(fm.content)
+                    }
+                }
+                val userMessage = buildString {
+                    append(com.openminis.app.data.repository.MemoryDreamPass.PLANNER_INSTRUCTIONS
+                        .replace("\$MAX_EDITS", com.openminis.app.data.repository.MemoryDreamPass.MAX_ENTRIES.toString()))
+                    append("\n\n--- MEMORY FILES ---\n\n")
+                    append(manifestText)
+                    append("\n\n--- END. Output your operations now (one per line), or nothing if all files are already clean.")
+                }
+                val maxOut = 4096
+                val response = provider.sendMessage(
+                    messages = listOf(LLMMessage(role = LLMMessage.Role.USER, content = userMessage)),
+                    systemPrompt = "You are a memory review engine. You output only the exact operation lines requested — never prose, never markdown fences.",
+                    maxTokens = maxOut,
+                    temperature = null,
+                    imageParts = emptyList(),
+                    tools = emptyList(),
+                    thinkingLevel = ThinkingLevel.OFF,
+                )
+                val planLines = response.text.lines().map { it.trim() }
+                    .filter { it.startsWith("PRUNE") }
+                if (planLines.isEmpty()) {
+                    appendSystemInfo(
+                        text = "Dream pass complete: reviewed ${manifest.size} files, model kept everything as-is (0 prunes).",
+                        iconKind = "compact",
+                    )
+                    return@launch
+                }
+                val (applied, refused) = com.openminis.app.data.repository.MemoryDreamPass.applyPlan(memoryDir, planLines)
+                com.openminis.app.data.repository.MemoryDreamPass.pruneOldSnapshots(memoryDir, snap)
+                val refusedNote = if (refused.isEmpty()) "" else
+                    "\nRefused ${refused.size}: " + refused.take(3).joinToString("; ")
+                appendSystemInfo(
+                    text = "Dream pass: reviewed ${manifest.size} files → $applied prune(s) applied" +
+                        ", ${refused.size} refused${if (snap != null) ", snapshot saved (${snap.name})" else ", SNAPSHOT FAILED — applied without safety net"}.$refusedNote",
+                    iconKind = "compact",
+                )
+            } catch (e: Exception) {
+                AppLogger.error(TAG, "Dream pass failed: ${e.message}")
+                appendSystemInfo(
+                    text = "Dream pass failed: ${e.message ?: e.javaClass.simpleName}. No changes were made." +
+                        " If a partial apply happened, the snapshot under memory/snapshots/ holds the pre-pass state.",
+                    iconKind = "compact",
+                )
+            } finally {
+                _isCompacting.value = false
+            }
+        }
     }
 
     private inline fun compactAllImpl(

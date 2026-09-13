@@ -58,6 +58,11 @@ class MemoryRepository(private val memoryDir: File) {
         memoryDir.mkdirs()
     }
 
+    /** [T-dream-prune] The memory root this repository reads/writes.
+     *  Exposed for the Dream pass (snapshot + manifest + apply) which
+     *  operates on the same directory tree. */
+    val dir: File get() = memoryDir
+
     // -- memory_write --
 
     /**
