@@ -465,7 +465,6 @@ private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCateg
     OffloadPermissionManager.PermissionCategory.INTEGRATIONS -> R.string.perm_section_a11y
 }
 
-@Composable
 /**
  * [T-agent-perm-rules] Tri-state row for a core agent tool — same affordance
  * as [PermissionRow] (trailing level chip → dropdown), but the level is

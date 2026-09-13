@@ -54,7 +54,9 @@ object AgentToolPermissions {
 
     /** Notification channel for background confirm prompts. */
     private const val CHANNEL_ID = "agent_tool_confirm"
-    private const val NOTIF_TAG = "agent_tool_confirm"
+    // [T-agent-perm-rules-fix2] Read by PermissionNotificationReceiver to
+    // cancel the notification on action — must be internal, not private.
+    internal const val NOTIF_TAG = "agent_tool_confirm"
 
     /**
      * Application context + foreground probe injected by MinisApp.onCreate

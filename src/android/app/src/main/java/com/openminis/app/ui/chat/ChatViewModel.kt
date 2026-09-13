@@ -9199,7 +9199,7 @@ class ChatViewModel(
         // heads-up notification when backgrounded); NOT_ALLOWED returns
         // fail-closed guidance to the model. Subagent runs pass their
         // session id — the parent's in ASK_ONCE terms — so grants inherit.
-        if (AgentToolPermissions.info(name) != null) {
+        if (com.openminis.app.offload.AgentToolPermissions.info(name) != null) {
             val gateResult = com.openminis.app.offload.AgentToolPermissions.gate(
                 name,
                 activeSessionId ?: com.openminis.app.offload.OffloadPermissionManager.OFFLOAD_GLOBAL_SESSION_ID,
