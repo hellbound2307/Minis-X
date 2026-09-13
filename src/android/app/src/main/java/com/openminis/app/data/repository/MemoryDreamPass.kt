@@ -138,6 +138,19 @@ object MemoryDreamPass {
     }
 
     /**
+     * [T-dream-prune-noop-cleanup] A no-op pass (model proposed zero
+     * prunes) mutates nothing — the snapshot taken at the start of that
+     * run is pure disk waste with nothing to roll back. Remove THIS run's
+     * snapshot only; older ones stay (they may be the rollback for a
+     * previous pass that DID apply prunes — keep-one semantics).
+     */
+    fun cleanupNoop(memoryDir: File, thisRunSnapshot: File?) {
+        try {
+            thisRunSnapshot?.deleteRecursively()
+        } catch (_: Exception) { }
+    }
+
+    /**
      * Parse + apply the model's plan. Expected plan format (one per line):
      *   KEEP <file> — recorded as a no-op decision
      *   PRUNE <file> :: <exact-line-or-block> => (DELETE | REPLACE: <new text>)

@@ -2163,6 +2163,11 @@ class ChatViewModel(
                 val planLines = response.text.lines().map { it.trim() }
                     .filter { it.startsWith("PRUNE") }
                 if (planLines.isEmpty()) {
+                    // No-op pass: clean up the snapshot we just took so
+                    // repeated runs don't pile up dream-* dirs (a no-op run
+                    // never mutates anything — there is nothing to roll
+                    // back, so the safety net is pure disk waste).
+                    com.openminis.app.data.repository.MemoryDreamPass.cleanupNoop(memoryDir, snap)
                     appendSystemInfo(
                         text = "Dream pass complete: reviewed ${manifest.size} files, model kept everything as-is (0 prunes).",
                         iconKind = "compact",
