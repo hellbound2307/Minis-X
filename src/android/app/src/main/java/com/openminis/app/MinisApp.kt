@@ -437,6 +437,11 @@ class MinisApp : Application(), ImageLoaderFactory {
         mcpRepository = MCPRepository(this)
         memoryRepository = MemoryRepository(java.io.File(filesDir, "minis-global/memory"))
         webAppShortcutRepository = WebAppShortcutRepository(database.webAppShortcutDao())
+        // [T-py-meta-tools] Pytool registry — load-on-init so agent-minted
+        // tools are callable from the first turn of any session. Fully
+        // guarded (registry parse degrades to "some tools missing", never a
+        // crash — same lesson as SkillRepository above).
+        com.openminis.app.tools.PyMetaToolStore.init(this)
 
         // T-android-safemode-lateinit-crash: every repository the UI layer
         // reads is now assigned, so MainActivity may safely compose. Set

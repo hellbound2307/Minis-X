@@ -212,6 +212,15 @@ object PRootKernel {
         // PluginManager at install, never by sessions directly.
         File(globalBase, "plugins/payloads").mkdirs()
         bindMounts["/var/minis/plugins"] = File(globalBase, "plugins/payloads").absolutePath
+        // [T-py-meta-tools] Agent-minted Python tools are global (like
+        // skills/memory): binding them here means the in-PRoot harness reads
+        // the SAME tool code the Android-side registry tracks
+        // (host: minis-global/meta-tools/<name>.py + registry.json).
+        // Registry writes happen host-side via the py_meta_tools tool; reads
+        // happen in-PRoot at execution time. Global so tools minted in one
+        // session are callable in every later session.
+        File(globalBase, "meta-tools").mkdirs()
+        bindMounts["/var/minis/meta-tools"] = File(globalBase, "meta-tools").absolutePath
     }
 
     fun removeBindMount(linuxPath: String) {

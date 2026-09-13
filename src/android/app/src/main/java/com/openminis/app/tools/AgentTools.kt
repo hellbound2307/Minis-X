@@ -27,6 +27,13 @@ object AgentTools {
         // attempt those calls. Mirrors the iOS gate at
         // AIChatViewModel.makeAgentTools(memoryEnabled:).
         memoryEnabled: Boolean = true,
+        // [T-py-meta-tools] Agent-minted Python tools (Zafiro D20 port).
+        // Passed in fresh each turn by the caller (the agentTools computed
+        // property re-reads PyMetaToolStore), so a tool minted mid-conversation
+        // via py_meta_tools write appears on the NEXT model request — the
+        // in-turn hot registration is a property of the caller, not this
+        // function.
+        customPyTools: List<AgentToolDefinition> = emptyList(),
     ): List<AgentToolDefinition> = buildList {
         add(shellExecuteDefinition())
         add(FileReadTool.definition())
@@ -65,12 +72,19 @@ object AgentTools {
         add(com.openminis.app.tools.ocr.OcrTool.definition())
         // [T-android-plugin-kernel] Runtime plugin install/list/uninstall.
         com.openminis.app.plugins.PluginTools.definitions().forEach { add(it) }
+        // [T-py-meta-tools] The meta-tool itself: CRUD + test over the
+        // agent-minted pytool registry. The tools it creates join the surface
+        // via customPyTools above.
+        add(com.openminis.app.tools.PyMetaTools.definition())
         // [T-android-event-bus] Rules that wake the agent on events.
         eventRuleSetDefinition().forEach { add(it) }
         // [T-android-projects] Persistent project workspaces.
         projectDefinitions().forEach { add(it) }
         // [T-android-marketplace] Curated catalog — browse/install by id.
         com.openminis.app.marketplace.MarketplaceTools.definitions().forEach { add(it) }
+        // [T-py-meta-tools] Agent-minted Python tools — hot-registered by
+        // py_meta_tools write, surfaced here on the next model request.
+        customPyTools.forEach { add(it) }
     }
 
     // [T-android-event-bus]

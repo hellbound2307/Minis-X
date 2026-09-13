@@ -1,0 +1,6 @@
+#!/bin/sh
+# minis-pytools — runner/introspector for agent-minted Python tools.
+# Thin sh wrapper over the shared Python implementation shipped at
+# /usr/local/lib/minis-pytools/harness.py (platform-neutral, same file on
+# iOS iSH and Android PRoot — keep it POSIX + dependency-light).
+exec python3 /usr/local/lib/minis-pytools/harness.py "$@"

@@ -1226,6 +1226,12 @@ class ChatViewModel(
                 providerRepository, context,
             ),
             memoryEnabled = _memoryEnabled.value,
+            // [T-py-meta-tools] Hot-registered pytools: read fresh each turn
+            // so a tool minted mid-conversation (py_meta_tools write) is
+            // callable on the very next model request — no restart, no reload
+            // call. The store keeps an in-memory cache; the read is a
+            // StateFlow access, no I/O.
+            customPyTools = com.openminis.app.tools.PyMetaToolStore.definitions(),
         )
 
     /**
@@ -9437,7 +9443,57 @@ class ChatViewModel(
                 argsJson = argsJson,
                 sessionId = activeSessionId,
             )
-            else -> ToolExecutionResult("Unknown tool: $name", false)
+            else -> {
+                // [T-py-meta-tools] Registry lookup BEFORE the unknown-tool
+                // failure: a name that matches a registered pytool executes
+                // through the harness; everything else keeps the historical
+                // "Unknown tool" result. A pytool is a first-class tool with
+                // its real name (no prefix, no sub-namespace).
+                val pyTool = com.openminis.app.tools.PyMetaToolStore.get(name)
+                if (pyTool != null) {
+                    executePyTool(name, argsJson, pyTool)
+                } else {
+                    ToolExecutionResult("Unknown tool: $name", false)
+                }
+            }
+        }
+    }
+
+    /**
+     * [T-py-meta-tools] Run an agent-minted Python tool through the in-PRoot
+     * harness. Args go base64 through argv (b64 alphabet is shell-safe — no
+     * quoting can break); the harness decodes, execs the saved tool code, and
+     * calls main(**args). stdout is the result text; a non-zero exit is a
+     * failure with the stderr tail. Timeout comes from the registry entry
+     * (write accepts timeout_seconds, default 60s, hard cap 300s).
+     */
+    private suspend fun executePyTool(
+        name: String,
+        argsJson: String,
+        tool: com.openminis.app.tools.PyMetaToolStore.PyTool,
+    ): ToolExecutionResult {
+        val argsB64 = android.util.Base64.encodeToString(
+            argsJson.toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP,
+        )
+        val timeoutMs = tool.timeoutSeconds * 1000L
+        return try {
+            val result = com.openminis.app.sandbox.ShellExecutor.execute(
+                context = context,
+                command = "python3 /usr/local/lib/minis-pytools/harness.py run $name '$argsB64'",
+                timeout = timeoutMs,
+            )
+            val output = result.output.trim().ifBlank { "(no output)" }
+            if (result.exitCode == 0) {
+                ToolExecutionResult(output.take(30_000), true)
+            } else {
+                ToolExecutionResult(
+                    "pytool '$name' failed (exit ${result.exitCode}):\n${output.take(10_000)}",
+                    false,
+                )
+            }
+        } catch (t: Throwable) {
+            ToolExecutionResult("pytool '$name' execution error: ${t.message ?: t::class.java.simpleName}", false)
         }
     }
 
