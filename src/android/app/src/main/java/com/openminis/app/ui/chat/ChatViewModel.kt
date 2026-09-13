@@ -9369,6 +9369,16 @@ class ChatViewModel(
                 val r = com.openminis.app.plugins.PluginManager.reinstallFromRegistry(id)
                 ToolExecutionResult(r.message, r.success)
             }
+            // [T-py-meta-tools] The meta-tool itself: CRUD + test over the
+            // agent-minted pytool registry. NOTE (vc43 hotfix): the tool was
+            // already exposed on the surface in vc43, but this dispatch arm
+            // was missing — every call fell to the else-branch pytool lookup,
+            // which correctly refuses reserved names, so py_meta_tools calls
+            // died as "Unknown tool" on device. Surface ≠ dispatch.
+            "py_meta_tools" -> com.openminis.app.tools.PyMetaTools.execute(
+                argsJson = argsJson,
+                context = context,
+            )
             // [T-android-event-bus] Rules that wake the agent on events.
             "event_rule_set" -> {
                 val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }

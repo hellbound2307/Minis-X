@@ -221,6 +221,18 @@ object ExecutionCoordinator {
         mounts["/var/minis/plugins"] = payloadsDir.absolutePath
         PRootKernel.addBindMount("/var/minis/plugins", payloadsDir.absolutePath)
 
+        // [T-py-meta-tools-hotfix] The pytool store MUST be here too — this
+        // map feeds the live PRoot -b argv (see mcp-servers note above).
+        // vc43 registered it only in PRootKernel.registerGlobalBindMounts
+        // (host-side resolveHostPath path), so on-device the harness could
+        // not read /var/minis/meta-tools: py_meta_tools test/write failed
+        // introspection and the tool was unusable despite the surface entry.
+        // Same trap as mcp-servers — second occurrence; keep ALL global
+        // /var/minis subdirs in BOTH places.
+        val metaToolsDir = File(globalBase, "meta-tools").also { it.mkdirs() }
+        mounts["/var/minis/meta-tools"] = metaToolsDir.absolutePath
+        PRootKernel.addBindMount("/var/minis/meta-tools", metaToolsDir.absolutePath)
+
         // T277: user-mounted external folders (SAF-picked trees). PersistentShell
         // uses this map verbatim as PRoot's `-b` argv, so any mount missing here
         // is invisible to the shell — `ls /var/minis/mounts/<name>/` then shows
