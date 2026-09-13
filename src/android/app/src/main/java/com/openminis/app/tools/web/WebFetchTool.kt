@@ -32,6 +32,12 @@ object WebFetchTool {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
+            // [T-ssrf-filter] Connection-time enforcement: every redirect hop
+            // re-resolves through GuardDns, which range-checks at OkHttp's own
+            // resolution point — a public URL that redirects into private /
+            // metadata space is refused mid-chain, and the TOCTOU gap between
+            // the pre-flight check and the socket connect is closed.
+            .dns(SsrfGuard.GuardDns())
             .build()
     }
 
@@ -61,7 +67,13 @@ object WebFetchTool {
         } else if (!url.startsWith("http://") && !url.startsWith("https://")) {
             ToolExecutionResult("Error: url must start with http:// or https://", false)
         } else {
-            kotlinx.coroutines.runBlocking { withContext(Dispatchers.IO) { fetch(url, rawHtml) } }
+            // [T-ssrf-filter] Audit P0 #4: pre-flight range check on the
+            // URL's resolved addresses. Fail-closed BEFORE the request —
+            // loopback/private/link-local/CGNAT/metadata endpoints refused.
+            // (Redirect hops are guarded at connection time by GuardDns.)
+            SsrfGuard.checkUrl(url)?.let { refusal ->
+                ToolExecutionResult(refusal, false)
+            } ?: kotlinx.coroutines.runBlocking { withContext(Dispatchers.IO) { fetch(url, rawHtml) } }
         }
     } catch (e: Exception) {
         ToolExecutionResult("web_fetch failed: ${e.message}", false)
