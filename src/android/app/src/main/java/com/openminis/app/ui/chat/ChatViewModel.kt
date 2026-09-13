@@ -9189,6 +9189,26 @@ class ChatViewModel(
         // bridge, which is now where checkPermission runs.
         val toolTitle = try { JSONObject(argsJson).optString("tool_title", name) } catch (_: Exception) { name }
 
+        // [T-agent-perm-rules] Core-tool permission gate (audit P0 #5).
+        // The offload CLIs are gated in OffloadGate; core agent tools are
+        // gated HERE — the single dispatch point every named tool call
+        // passes through, so the policy is consistent regardless of how
+        // the model built the call. BYPASS (default for every gateable
+        // tool) short-circuits to null with zero overhead — one map lookup
+        // on the hot path. ASK_ONCE suspends on the in-app dialog (or the
+        // heads-up notification when backgrounded); NOT_ALLOWED returns
+        // fail-closed guidance to the model. Subagent runs pass their
+        // session id — the parent's in ASK_ONCE terms — so grants inherit.
+        if (AgentToolPermissions.info(name) != null) {
+            val gateResult = com.openminis.app.offload.AgentToolPermissions.gate(
+                name,
+                activeSessionId ?: com.openminis.app.offload.OffloadPermissionManager.OFFLOAD_GLOBAL_SESSION_ID,
+            )
+            if (gateResult != null) {
+                return ToolExecutionResult(gateResult, false)
+            }
+        }
+
         return when (name) {
             FileReadTool.NAME -> {
                 val result = FileReadTool.execute(argsJson, activeSessionId, context)

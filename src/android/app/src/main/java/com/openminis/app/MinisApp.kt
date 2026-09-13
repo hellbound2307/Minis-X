@@ -745,6 +745,12 @@ class MinisApp : Application(), ImageLoaderFactory {
         // Initialize offload permission manager
         OffloadPermissionManager.init(this)
 
+        // [T-agent-perm-rules] Core-tool permission gate (audit P0 #5):
+        // tri-state rules for shell_execute / browser_use / spawn_agent /
+        // job_start / plugin_install / memory_write / event_rule_set /
+        // py_meta_tools + background confirm notifications.
+        com.openminis.app.offload.AgentToolPermissions.init(this) { isAppForeground() }
+
         // Initialize speech-recognition adapter layer (system + provider engines).
         com.openminis.app.speech.SpeechRecognitionManager.init(this)
 

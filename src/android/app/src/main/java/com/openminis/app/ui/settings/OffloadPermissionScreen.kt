@@ -117,6 +117,28 @@ fun OffloadPermissionScreen(
             }
         }
 
+        // [T-agent-perm-rules] Core agent tools (audit P0 #5): tri-state
+        // rules for the tools that execute through the agent loop itself.
+        // All default to BYPASS — the user opted into an agent app; this
+        // section is where they tighten specific tools to Ask / Not allowed.
+        // ASK_ONCE prompts in-app (existing dialog) and, when the app is
+        // backgrounded, via a heads-up notification with Allow/Deny.
+        SettingsSection(
+            header = stringResource(R.string.perm_section_agent_tools),
+            footer = stringResource(R.string.perm_section_agent_tools_footer),
+        ) {
+            com.openminis.app.offload.AgentToolPermissions.gateableTools
+                .forEachIndexed { idx, tool ->
+                    AgentToolPermissionRow(
+                        toolName = tool.toolName,
+                        displayName = tool.displayName,
+                        description = tool.description,
+                        showDivider = idx <
+                            com.openminis.app.offload.AgentToolPermissions.gateableTools.size - 1,
+                    )
+                }
+        }
+
         // T336 / T345-2: dedicated SectionCard per integration CLI, rendered
         // after the Privacy/Media/System auto-categories so the information
         // hierarchy reads: configuration → privacy → system integrations.
@@ -433,8 +455,7 @@ private fun PermissionRow(
     }
 }
 
-private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCategory): Int = when (category) {
-    OffloadPermissionManager.PermissionCategory.PRIVACY -> R.string.perm_section_privacy
+private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCategory): Int = when (category) {    OffloadPermissionManager.PermissionCategory.PRIVACY -> R.string.perm_section_privacy
     OffloadPermissionManager.PermissionCategory.MEDIA -> R.string.perm_section_media
     OffloadPermissionManager.PermissionCategory.SYSTEM -> R.string.perm_section_system
     // INTEGRATIONS is rendered by IntegrationSection above; this branch is
@@ -444,6 +465,62 @@ private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCateg
 }
 
 @Composable
+/**
+ * [T-agent-perm-rules] Tri-state row for a core agent tool — same affordance
+ * as [PermissionRow] (trailing level chip → dropdown), but the level is
+ * stored/read through the shared OffloadPermissionManager prefs so both
+ * sections persist identically. Recomposes from a local `remember` + the
+ * click-through set, matching the existing rows' pattern (the screen is
+ * re-entered to observe persistent changes).
+ */
+@Composable
+private fun AgentToolPermissionRow(
+    toolName: String,
+    displayName: String,
+    description: String,
+    showDivider: Boolean,
+) {
+    var currentLevel by remember {
+        mutableStateOf(com.openminis.app.offload.AgentToolPermissions.getLevel(toolName))
+    }
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        SettingsRow(
+            title = displayName,
+            subtitle = description,
+            onClick = { expanded = true },
+            showChevron = true,
+            showDivider = showDivider,
+            minHeight = 72.dp,
+            trailing = {
+                Text(
+                    text = levelDisplayName(currentLevel),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = levelColor(currentLevel),
+                )
+            },
+        )
+        MinisMenu(expanded = expanded, onDismissRequest = { expanded = false }, alignEnd = true) {
+            for (level in OffloadPermissionManager.PermissionLevel.entries) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            levelDisplayName(level),
+                            color = levelColor(level),
+                        )
+                    },
+                    onClick = {
+                        currentLevel = level
+                        expanded = false
+                        com.openminis.app.offload.AgentToolPermissions.setLevel(toolName, level)
+                    },
+                )
+            }
+        }
+    }
+}
+
 private fun toolTitle(tool: OffloadPermissionManager.ToolPermissionInfo): String {
     val res = toolTitleRes(tool.toolName)
     if (res == 0) return tool.displayName

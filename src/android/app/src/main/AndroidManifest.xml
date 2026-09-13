@@ -481,6 +481,14 @@
             android:name=".tools.ask.AskUserReplyReceiver"
             android:exported="false" />
 
+        <!-- [T-agent-perm-rules] Allow/Deny actions on the background
+             permission-confirm notification (core agent tools, audit P0 #5).
+             Funnel into OffloadPermissionManager.respondToRequest — the same
+             slot the in-app dialog writes; first responder wins. -->
+        <receiver
+            android:name=".offload.PermissionNotificationReceiver"
+            android:exported="false" />
+
         <!-- Alarm broadcast receiver (also handles BOOT_COMPLETED for re-scheduling) -->
         <receiver
             android:name=".offload.AlarmReceiver"

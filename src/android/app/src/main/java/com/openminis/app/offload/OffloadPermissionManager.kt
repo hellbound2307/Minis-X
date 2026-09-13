@@ -310,14 +310,18 @@ object OffloadPermissionManager {
     }
 
     fun getLevel(toolName: String): PermissionLevel {
-        val info = toolRegistry.find { it.toolName == toolName }
+        // [T-agent-perm-rules] Core agent tools are gated through the same
+        // prefs keys but live outside toolRegistry — the default resolves
+        // from either registry, then the stored level (if any) wins.
+        val default = toolRegistry.find { it.toolName == toolName }?.defaultLevel
+            ?: com.openminis.app.offload.AgentToolPermissions.defaultLevelFor(toolName)
             ?: return PermissionLevel.BYPASS // Unknown tools are bypassed
 
         val stored = prefs.getString("level_$toolName", null)
         return if (stored != null) {
-            try { PermissionLevel.valueOf(stored) } catch (_: Exception) { info.defaultLevel }
+            try { PermissionLevel.valueOf(stored) } catch (_: Exception) { default }
         } else {
-            info.defaultLevel
+            default
         }
     }
 
@@ -328,6 +332,12 @@ object OffloadPermissionManager {
     fun resetAll() {
         val editor = prefs.edit()
         for (tool in toolRegistry) {
+            editor.remove("level_${tool.toolName}")
+        }
+        // [T-agent-perm-rules] Core agent tools live under the same
+        // level_<name> keys but outside toolRegistry; Reset All must clear
+        // them too or the button leaves stale agent-tool rules behind.
+        for (tool in com.openminis.app.offload.AgentToolPermissions.gateableTools) {
             editor.remove("level_${tool.toolName}")
         }
         editor.apply()

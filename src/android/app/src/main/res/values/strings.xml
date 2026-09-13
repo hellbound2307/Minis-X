@@ -803,6 +803,9 @@
     <string name="perm_allow_minis_config">Allow minis-config</string>
     <string name="perm_minis_config_desc">When disabled, the Agent cannot read or modify any settings via minis-config. The change history at Logs → Config Changes remains accessible. The Agent will receive a permission_denied error and can guide you via deep links instead.</string>
     <string name="perm_section_privacy">Privacy</string>
+    <!-- [T-agent-perm-rules] Core agent tool permission section (audit P0 #5). -->
+    <string name="perm_section_agent_tools">Agent Tools</string>
+    <string name="perm_section_agent_tools_footer">Rules for the tools the agent uses directly. Allow (default) runs them without asking. Ask prompts before each use — in the app, or as a notification with Allow / Deny when Minis is in the background. Not allowed blocks the tool outright.\nExample: set Shell to Ask, then background the app and send the agent a task — a heads-up notification asks you to approve each shell command before it runs.</string>
     <string name="perm_section_media">Media</string>
     <string name="perm_section_system">System</string>
     <string name="perm_tool_calendar">Calendar</string>
