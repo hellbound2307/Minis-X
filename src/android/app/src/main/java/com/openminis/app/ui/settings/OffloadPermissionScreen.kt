@@ -455,7 +455,8 @@ private fun PermissionRow(
     }
 }
 
-private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCategory): Int = when (category) {    OffloadPermissionManager.PermissionCategory.PRIVACY -> R.string.perm_section_privacy
+private fun categoryHeaderRes(category: OffloadPermissionManager.PermissionCategory): Int = when (category) {
+    OffloadPermissionManager.PermissionCategory.PRIVACY -> R.string.perm_section_privacy
     OffloadPermissionManager.PermissionCategory.MEDIA -> R.string.perm_section_media
     OffloadPermissionManager.PermissionCategory.SYSTEM -> R.string.perm_section_system
     // INTEGRATIONS is rendered by IntegrationSection above; this branch is

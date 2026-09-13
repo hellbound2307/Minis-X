@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.openminis.app.MinisApp
 import com.openminis.app.logging.AppLogger
 
 /**
@@ -87,7 +86,7 @@ object AgentToolPermissions {
         val toolName: String,
         val displayName: String,
         val description: String,
-        val defaultLevel: PermissionLevel = PermissionLevel.BYPASS,
+        val defaultLevel: OffloadPermissionManager.PermissionLevel = OffloadPermissionManager.PermissionLevel.BYPASS,
     )
 
     val gateableTools: List<GateableTool> = listOf(
@@ -137,14 +136,14 @@ object AgentToolPermissions {
      * names absent from its offload registry so agent-tool levels stored
      * under the shared `level_<name>` prefs keys are actually read.
      */
-    fun defaultLevelFor(toolName: String): PermissionLevel? =
+    fun defaultLevelFor(toolName: String): OffloadPermissionManager.PermissionLevel? =
         byName[toolName]?.defaultLevel
 
     /** Read the stored level for a core tool (BYPASS when unknown). */
-    fun getLevel(toolName: String): PermissionLevel =
+    fun getLevel(toolName: String): OffloadPermissionManager.PermissionLevel =
         OffloadPermissionManager.getLevel(toolName)
 
-    fun setLevel(toolName: String, level: PermissionLevel) =
+    fun setLevel(toolName: String, level: OffloadPermissionManager.PermissionLevel) =
         OffloadPermissionManager.setLevel(toolName, level)
 
     /**
@@ -170,14 +169,14 @@ object AgentToolPermissions {
     suspend fun gate(toolName: String, sessionId: String): String? {
         val level = OffloadPermissionManager.getLevel(toolName)
         return when (level) {
-            PermissionLevel.BYPASS -> null
-            PermissionLevel.NOT_ALLOWED -> {
+            OffloadPermissionManager.PermissionLevel.BYPASS -> null
+            OffloadPermissionManager.PermissionLevel.NOT_ALLOWED -> {
                 val display = byName[toolName]?.displayName ?: toolName
                 "permission_denied: $display is set to Not Allowed in Settings → Permissions. " +
                     "This is a hard policy boundary, not a transient failure — do not retry. " +
                     "Ask the user to change the setting if the task needs this tool."
             }
-            PermissionLevel.ASK_ONCE -> {
+            OffloadPermissionManager.PermissionLevel.ASK_ONCE -> {
                 // prefs are initialized in MinisApp.onCreate before any
                 // sandbox boot; a null appContext here means we're in a
                 // unit-test or pre-init context — fail open (BYPASS).
