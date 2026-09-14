@@ -25,6 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -192,6 +196,88 @@ internal fun TypingIndicator() {
                 color = ChatColors.tertiaryText,
                 modifier = Modifier.graphicsLayer { translationY = offsetY },
             )
+        }
+    }
+}
+
+/**
+ * [T-subagent-wire] Audit P1 — live subagent activity panel. One row per
+ * run in THIS session: status glyph (▶ running / ✓ done / ✕ failed),
+ * label, elapsed ticking every second while running, depth badge when
+ * nested. Mounted above the resume banner, below compact progress — it
+ * reads as live machinery the same way the compact indicator does.
+ *
+ * The panel hides when nothing is running (completed entries linger only
+ * while any sibling still runs — final state legible, then it clears).
+ */
+@Composable
+internal fun SubagentActivityPanel(
+    runs: List<com.openminis.app.tools.subagent.SubagentRunner.RunSnapshot>,
+    nowMs: () -> Long,
+) {
+    var tick by remember { mutableStateOf(0) }
+    // Tick while any run is live so elapsed counters visibly move.
+    LaunchedEffect(runs.any { it.status == "running" }) {
+        while (runs.any { it.status == "running" }) {
+            kotlinx.coroutines.delay(1000)
+            tick += 1
+        }
+    }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        runs.sortedWith(compareByDescending<com.openminis.app.tools.subagent.SubagentRunner.RunSnapshot> { it.status == "running" }.thenBy { it.startedAtMs }).forEach { run ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ChatColors.toolCapsuleBg, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                val glyph = when (run.status) {
+                    "running" -> "▶"
+                    "completed" -> "✓"
+                    else -> "✕"
+                }
+                val glyphColor = when (run.status) {
+                    "running" -> MaterialTheme.colorScheme.tertiary
+                    "completed" -> Color(0xFF34C759)  // iOS .green
+                    else -> MaterialTheme.colorScheme.error
+                }
+                Text(
+                    glyph,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = glyphColor,
+                )
+                Text(
+                    run.label,
+                    fontSize = 13.sp,
+                    color = ChatColors.primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (run.depth > 1) {
+                    Text(
+                        "d${run.depth}",
+                        fontSize = 11.sp,
+                        color = ChatColors.tertiaryText,
+                    )
+                }
+                Text(
+                    // tick drives recomposition each second while running
+                    // (its value participates so nothing is optimized away).
+                    "${(nowMs() - run.startedAtMs) / 1000 + (tick * 0)}s",
+                    fontSize = 12.sp,
+                    fontFeatureSettings = "tnum",
+                    color = ChatColors.tertiaryText,
+                )
+            }
         }
     }
 }

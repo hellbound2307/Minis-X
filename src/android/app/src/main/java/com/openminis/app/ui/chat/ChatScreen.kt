@@ -3878,6 +3878,22 @@ fun ChatScreen(
                             )
                         }
                     }
+                    // [T-subagent-wire] Audit P1 — live subagent activity
+                    // panel. Shows ONLY runs belonging to THIS session with
+                    // at least one still running (completed entries linger
+                    // until pruned so the user sees what finished; the panel
+                    // hides when everything's aged out).
+                    val subagentRuns by com.openminis.app.tools.subagent.SubagentRunner.liveRuns
+                        .collectAsState()
+                    val sessionSubagents = subagentRuns.filter { it.sessionId == sessionId }
+                    if (sessionSubagents.any { it.status == "running" }) {
+                        item(key = "__subagent_panel__", contentType = "subagent_panel") {
+                            SubagentActivityPanel(
+                                runs = sessionSubagents,
+                                nowMs = { System.currentTimeMillis() },
+                            )
+                        }
+                    }
                     if (canResume && !isStreaming && error == null && !lastAssistantHasError) {
                         item(key = "__resume_banner__", contentType = "resume_banner") {
                             ResumeBanner(onResume = {

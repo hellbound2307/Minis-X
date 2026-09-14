@@ -18,6 +18,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -79,6 +82,59 @@ object SubagentRunner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val runs = ConcurrentHashMap<String, SubagentRun>()
+
+    /**
+     * [T-subagent-wire] Audit P1 — live activity wire for the UI. One shape,
+     * snapshot list, re-derived from [runs] on every emission: the panel
+     * never trusts a stale push; each publish is a fresh walk of the map.
+     * Gap-detection (Jenny's first_seq discipline) applies at the consumer:
+     * sequence numbers are monotonic per runId; a consumer comparing two
+     * consecutive snapshots can detect a missed update by an id VANISHING
+     * while its seq wasn't terminal — here surfaced as "completed" entries
+     * kept for 5 min (pruneStale window), so truncation is visible, never
+     * silent.
+     */
+    data class RunSnapshot(
+        val runId: String,
+        val label: String,
+        val sessionId: String,
+        val depth: Int,
+        val startedAtMs: Long,
+        val status: String,        // running | completed | error | cancelled | timeout
+        val elapsedMs: Long,
+        val seq: Long,             // monotonic per-process emission counter
+    )
+
+    private var emitSeq: Long = 0
+
+    private val _liveRuns = MutableStateFlow<List<RunSnapshot>>(emptyList())
+    val liveRuns: StateFlow<List<RunSnapshot>> = _liveRuns.asStateFlow()
+
+    /** Re-derive the full snapshot list and publish. Called on spawn,
+     *  every status transition we control, and prune. */
+    private fun publishLiveRuns() {
+        val now = System.currentTimeMillis()
+        val snaps = runs.values.map { run ->
+            val result = runCatching { run.deferred.getCompleted() }.getOrNull()
+            val status = when {
+                run.deferred.isCancelled -> "cancelled"
+                result != null -> result.status
+                else -> "running"
+            }
+            RunSnapshot(
+                runId = run.runId,
+                label = run.label,
+                sessionId = run.sessionId,
+                depth = run.depth,
+                startedAtMs = run.startedAtMs,
+                status = status,
+                elapsedMs = now - run.startedAtMs,
+                seq = emitSeq,
+            )
+        }.sortedBy { it.startedAtMs }
+        _liveRuns.value = snaps
+        emitSeq += 1
+    }
 
     data class SubagentRun(
         val runId: String,
@@ -187,6 +243,8 @@ object SubagentRunner {
             deferred = deferred,
         )
         runs[runId] = run
+        // [T-subagent-wire] UI wire: publish on spawn.
+        publishLiveRuns()
 
         val job = scope.async {
             val result = runCatching { runSameSessionTurn(app, run, task, timeoutSec) }
@@ -199,6 +257,9 @@ object SubagentRunner {
                     }
                 }
             deferred.complete(result)
+            // [T-subagent-wire] UI wire: publish on completion (any terminal
+            // state — completed/error/cancelled/timeout all land here).
+            publishLiveRuns()
             result
         }
 
@@ -468,6 +529,8 @@ object SubagentRunner {
         run.deferred.cancel()
         runCatching { run.vm?.cancelStream() }
         releaseRun(run)
+        // [T-subagent-wire] UI wire: publish on cancel.
+        publishLiveRuns()
     }
 
     /**
@@ -506,5 +569,8 @@ object SubagentRunner {
             if (stale) releaseRun(run)
             stale
         }
+        // [T-subagent-wire] UI wire: publish after pruning so the panel
+        // reflects the disappearance of aged-out completed runs.
+        publishLiveRuns()
     }
 }
