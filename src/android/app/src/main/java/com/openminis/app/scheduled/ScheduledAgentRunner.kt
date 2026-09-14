@@ -122,6 +122,11 @@ object ScheduledAgentRunner {
             val ok = result.status != "Error" && result.status != "Timeout"
             ScheduledTaskManager(app).markFired(task.id, sessionId, preview, ok = ok)
             postCompletionNotification(app, task, sessionId, preview)
+            // [T-silence-watchdog] Audit P0 #7: feed the outcome markers so
+            // a check-task that keeps failing (or keeps ending with no
+            // marker at all) escalates to a zero-LLM system notification
+            // after THRESHOLD consecutive misses.
+            feedWatchdog(app, task, result.responseText)
             return sessionId
         }
 
@@ -137,8 +142,29 @@ object ScheduledAgentRunner {
             val ok = result.status != "Error" && result.status != "Timeout"
             ScheduledTaskManager(app).markFired(task.id, sessionId, preview, ok = ok)
             postCompletionNotification(app, task, sessionId, preview)
+            feedWatchdog(app, task, result.responseText)
         }
         return sessionId
+    }
+
+    /**
+     * [T-silence-watchdog] Parse the run's final text for the outcome
+     * markers and feed the watchdog. Zero LLM calls — the text already
+     * exists. Non-check tasks simply carry no marker → UNKNOWN, which the
+     * watchdog counts same as FAILED for tasks whose label looks like a
+     * check; a plain one-shot task ("remind me…") also feeds UNKNOWN but
+     * its streak resets every time the user interacts. Simplest honest
+     * semantics: every scheduled run feeds; the watchdog only alerts on
+     * THRESHOLD consecutive dead feeds for the SAME task label.
+     */
+    private fun feedWatchdog(app: MinisApp, task: ScheduledTask, responseText: String?) {
+        runCatching {
+            val outcome = com.openminis.app.data.TurnOutcomeMarkers.parse(responseText ?: "")
+            val fired = com.openminis.app.data.SilenceWatchdog.feed(app, task.label.ifBlank { "task" }, outcome)
+            if (fired) {
+                AppLogger.info(TAG, "watchdog fired for task=${task.id} label=${task.label}")
+            }
+        }
     }
 
     /**

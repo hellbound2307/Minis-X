@@ -642,6 +642,14 @@ class MinisApp : Application(), ImageLoaderFactory {
         )
         SessionActivityTracker.setCompletionListener { sessionId, isError ->
             backgroundTaskNotifier.notifyTaskCompleted(sessionId, isError)
+            // [T-gardener] Audit P0 #6 — session-end trigger (Jenny's
+            // interval-clock phone adaptation: no standing timer, piggyback
+            // the existing completion hook). Fire-and-forget on its own
+            // scope: the listener runs on every stream completion and must
+            // never block it. The pass itself re-checks idle before every
+            // write and stands down if a new session starts mid-pass
+            // (user-always-wins).
+            com.openminis.app.data.GardenerRunner.maybeGarden(this)
         }
 
         // [T-android-config-confirm-timeout] Wire the config-confirm background
