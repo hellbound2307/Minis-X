@@ -33,7 +33,8 @@ object SilenceWatchdog {
 
     private const val TAG = "SilenceWatchdog"
     private const val CHANNEL_ID = "silence_watchdog"
-    private const val NOTIF_ID = 9107
+    /** Notification tag — notify(tag, id, notif) form; id is per-task. */
+    private const val TAG_ALERT = "silence_watchdog"
 
     /** Consecutive dead checks before the alert fires. Tuned so one flaky
      *  miss never alerts (n=1 noise), but a genuinely dead target surfaces
@@ -130,7 +131,7 @@ object SilenceWatchdog {
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .build()
-            manager.notify(NOTIF_ID, taskLabel.hashCode(), notif)
+            manager.notify(TAG_ALERT, taskLabel.hashCode(), notif)
             AppLogger.info(TAG, "watchdog alert posted: task=$taskLabel streak=$streak silent=$silent")
         } catch (t: Throwable) {
             AppLogger.warning(TAG, "watchdog alert failed: ${t.message}")
