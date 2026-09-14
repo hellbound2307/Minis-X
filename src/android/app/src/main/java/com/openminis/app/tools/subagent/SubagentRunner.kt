@@ -111,23 +111,19 @@ object SubagentRunner {
     val liveRuns: StateFlow<List<RunSnapshot>> = _liveRuns.asStateFlow()
 
     /** Re-derive the full snapshot list and publish. Called on spawn,
-     *  every status transition we control, and prune. */
+     *  every status transition we control, and prune. Status reads
+     *  [SubagentRun.finalStatus] (set at the terminal transition) — no
+     *  experimental Deferred.getCompleted() needed. */
     private fun publishLiveRuns() {
         val now = System.currentTimeMillis()
         val snaps = runs.values.map { run ->
-            val result = runCatching { run.deferred.getCompleted() }.getOrNull()
-            val status = when {
-                run.deferred.isCancelled -> "cancelled"
-                result != null -> result.status
-                else -> "running"
-            }
             RunSnapshot(
                 runId = run.runId,
                 label = run.label,
                 sessionId = run.sessionId,
                 depth = run.depth,
                 startedAtMs = run.startedAtMs,
-                status = status,
+                status = run.finalStatus ?: "running",
                 elapsedMs = now - run.startedAtMs,
                 seq = emitSeq,
             )
@@ -144,6 +140,10 @@ object SubagentRunner {
         val depth: Int,
         val startedAtMs: Long,
         val deferred: CompletableDeferred<SubagentResult>,
+        /** Terminal status once known ("completed"/"error"/"cancelled"/"timeout");
+         *  null while running. Set at the same transition that completes the
+         *  deferred — the UI wire reads this instead of polling the deferred. */
+        @Volatile var finalStatus: String? = null,
         /** The private child VM — cancelled on /stop and parent cancellation. */
         @Volatile var vm: ChatViewModel? = null,
         /** Private store owning [vm]; cleared when the run ends. */
@@ -256,6 +256,7 @@ object SubagentRunner {
                         SubagentResult(text = "Error: ${e.message}", status = "error")
                     }
                 }
+            run.finalStatus = result.status
             deferred.complete(result)
             // [T-subagent-wire] UI wire: publish on completion (any terminal
             // state — completed/error/cancelled/timeout all land here).
@@ -526,6 +527,7 @@ object SubagentRunner {
     /** Cancel a specific run and release its VM. */
     fun cancel(runId: String, appContext: Context) {
         val run = runs[runId] ?: return
+        run.finalStatus = "cancelled"
         run.deferred.cancel()
         runCatching { run.vm?.cancelStream() }
         releaseRun(run)

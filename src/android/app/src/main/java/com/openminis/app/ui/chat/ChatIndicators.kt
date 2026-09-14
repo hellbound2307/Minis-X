@@ -274,7 +274,6 @@ internal fun SubagentActivityPanel(
                     // (its value participates so nothing is optimized away).
                     "${(nowMs() - run.startedAtMs) / 1000 + (tick * 0)}s",
                     fontSize = 12.sp,
-                    fontFeatureSettings = "tnum",
                     color = ChatColors.tertiaryText,
                 )
             }

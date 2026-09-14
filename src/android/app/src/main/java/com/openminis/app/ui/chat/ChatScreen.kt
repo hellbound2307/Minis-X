@@ -564,6 +564,12 @@ fun ChatScreen(
     val canResume by viewModel.canResume.collectAsState()
     // [T-android-compact-progress] null when no compaction is running.
     val compactProgress by viewModel.compactProgress.collectAsState()
+    // [T-subagent-wire] Audit P1 — collected at the composable top (NOT in
+    // the LazyColumn builder — collectAsState is @Composable and cannot be
+    // called from LazyListScope lambdas; the vc45 stdout-seam lesson applies
+    // in reverse: check the calling context's contract, not just the shape).
+    val subagentRuns by com.openminis.app.tools.subagent.SubagentRunner.liveRuns
+        .collectAsState()
     val error by viewModel.error.collectAsState()
     val modelName by viewModel.modelName.collectAsState()
     val sessionTitle by viewModel.sessionTitle.collectAsState()
@@ -3879,12 +3885,11 @@ fun ChatScreen(
                         }
                     }
                     // [T-subagent-wire] Audit P1 — live subagent activity
-                    // panel. Shows ONLY runs belonging to THIS session with
-                    // at least one still running (completed entries linger
-                    // until pruned so the user sees what finished; the panel
-                    // hides when everything's aged out).
-                    val subagentRuns by com.openminis.app.tools.subagent.SubagentRunner.liveRuns
-                        .collectAsState()
+                    // panel (collected at the composable top; here only the
+                    // filter + mount). Shows ONLY runs belonging to THIS
+                    // session with at least one still running (completed
+                    // entries linger until pruned so the user sees what
+                    // finished; the panel hides when everything's aged out).
                     val sessionSubagents = subagentRuns.filter { it.sessionId == sessionId }
                     if (sessionSubagents.any { it.status == "running" }) {
                         item(key = "__subagent_panel__", contentType = "subagent_panel") {
