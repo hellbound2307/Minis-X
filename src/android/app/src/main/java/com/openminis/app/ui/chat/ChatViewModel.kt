@@ -98,6 +98,12 @@ class ChatViewModel(
     val memoryRepository: MemoryRepository? = null,
     val skillRepository: com.openminis.app.data.repository.SkillRepository? = null,
     val mcpRepository: com.openminis.app.data.repository.MCPRepository? = null,
+    /** [T-subagent-isolation] True for isolated subagent VMs (context="brief"):
+     *  the VM loads NO parent history and no compact summary — the child sees
+     *  only its mission. Full inheritance made children re-enact the parent's
+     *  most recent turn (2026-09-14 verification) and cost a full-context
+     *  request per child. */
+    private val subagentIsolated: Boolean = false,
 ) : ViewModel() {
 
     companion object {
@@ -473,6 +479,7 @@ class ChatViewModel(
             memoryRepository: MemoryRepository?,
             skillRepository: com.openminis.app.data.repository.SkillRepository?,
             mcpRepository: com.openminis.app.data.repository.MCPRepository? = null,
+            subagentIsolated: Boolean = false,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -484,6 +491,7 @@ class ChatViewModel(
                     memoryRepository = memoryRepository,
                     skillRepository = skillRepository,
                     mcpRepository = mcpRepository,
+                    subagentIsolated = subagentIsolated,
                 ) as T
             }
         }
@@ -4346,7 +4354,15 @@ class ChatViewModel(
             // above to avoid re-parsing partsJson on the UI thread. Safe to
             // bulk-addAll here because loadSession runs once at init before
             // any sender writes into agentHistory.
-            agentHistory.addAll(loaded.llmHistory)
+            // [T-subagent-isolation] Isolated subagent VMs skip the parent
+            // history entirely: the child sees ONLY its mission (appended by
+            // sendMessage). Fixes sweep-up re-enactment AND cuts the child's
+            // request from a full-context ~250K down to mission size.
+            if (subagentIsolated) {
+                AppLogger.info(TAG, "[Subagent] isolated context — skipping ${loaded.llmHistory.size} history rows")
+            } else {
+                agentHistory.addAll(loaded.llmHistory)
+            }
             val tHangDiagAfterAgentHistory = System.currentTimeMillis()
             println(
                 "[T-HANG-DIAG] agentHistory rebuilt session=$sessionId tookMs=${tHangDiagAfterAgentHistory - tHangDiagAfterTransform}",
@@ -4357,9 +4373,17 @@ class ChatViewModel(
             // the folded-away context via [effectiveAgentHistory]. Also gray
             // out every UI message that falls before the marker's boundary —
             // mirrors iOS Phase 2.5 restore (AIChatViewModel.swift:3360+).
-            val marker = runCatching { chatRepository.dao.latestCompactMarker(sessionId) }
-                .onFailure { Log.w(TAG, "latestCompactMarker failed: ${it.message}") }
-                .getOrNull()
+            // [T-subagent-isolation] Isolated subagent VMs also skip the compact
+            // summary restore — the parent's summary is parent context, not the
+            // child's. (Without this the child would still see a ~10-20K-token
+            // summary of the folded parent conversation.)
+            val marker = if (subagentIsolated) {
+                null
+            } else {
+                runCatching { chatRepository.dao.latestCompactMarker(sessionId) }
+                    .onFailure { Log.w(TAG, "latestCompactMarker failed: ${it.message}") }
+                    .getOrNull()
+            }
             _compactSummary.value = marker?.summary
             _cachedLatestMarker = marker
 

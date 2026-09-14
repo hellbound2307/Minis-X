@@ -277,23 +277,25 @@ object AgentTools {
     private fun spawnAgentDefinition(): AgentToolDefinition = AgentToolDefinition(
         name = "spawn_agent",
         description = "Spawn a subagent that runs WITHIN this same conversation — its work " +
-            "appears in this session's transcript (no new chat is created) and it sees the " +
-            "full conversation history automatically. Use it for subtasks that benefit from a " +
-            "focused pass with full context: deep research on a file or topic just discussed, " +
-            "drafting a long document, multi-step investigation. The subagent has the same " +
-            "provider access and most of the same tools (except spawn_agent itself — " +
-            "subagents cannot spawn further subagents). When wait=true (default), the tool " +
-            "blocks until the subagent finishes and returns the final text. When wait=false, " +
-            "the tool returns a run_id immediately; poll with agent_status to check progress.",
+            "appears in this session's transcript (no new chat is created). By default the " +
+            "subagent is ISOLATED: it sees only its task, not this conversation (reliable and " +
+            "cheap); pass context=\"inherit\" only when the subtask genuinely needs the " +
+            "conversation history. Use it for focused subtasks: deep research, drafting, " +
+            "multi-step investigation. The subagent has the same provider access and most of " +
+            "the same tools (except spawn_agent itself — subagents cannot spawn further " +
+            "subagents). When wait=true (default), the tool blocks until the subagent finishes " +
+            "and returns the final text. When wait=false, the tool returns a run_id immediately; " +
+            "poll with agent_status to check progress.",
         parameters = mapOf(
             "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Research X topic', 'Draft Y document'). Use the same language as the user."),
-            "task" to AgentToolParam("string", "The instruction for the subagent. It is added to THIS conversation as the subagent's task message, so the subagent continues the same discussion — be specific about what to do and what to return."),
+            "task" to AgentToolParam("string", "The instruction for the subagent. Make it self-contained — by default the subagent does NOT see this conversation, so include everything it needs and say exactly what to return."),
             "label" to AgentToolParam("string", "Optional short label identifying the run in agent_status output. Defaults to the first words of task."),
             "wait" to AgentToolParam("boolean", "When true (default), block until the subagent finishes and return the result. When false, return a run_id immediately and let it run in the background."),
             "timeout_sec" to AgentToolParam("integer", "Maximum seconds to wait for the subagent (default 600, max 1800). Ignored when wait=false."),
+            "context" to AgentToolParam("string", "Optional. 'brief' (default) = the subagent sees only its task — recommended, avoids context bleed and full-context cost. 'inherit' = the subagent also sees the full session history (for tasks that need the conversation)."),
         ),
         required = listOf("tool_title", "task"),
-        propertyOrdering = listOf("tool_title", "task", "label", "wait", "timeout_sec"),
+        propertyOrdering = listOf("tool_title", "task", "label", "wait", "timeout_sec", "context"),
     )
 
     // [T-android-timer-tool] wait_and_resume: set a timer that resumes the

@@ -51,11 +51,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * ## Context
  *
- * Full inheritance comes for free: the private VM loads the parent session's
- * real history, so the subagent sees the same conversation the user sees.
- * The old bounded-transcript prefix (context="inherit") is obsolete — the
- * `context` argument is still ACCEPTED for tool-call compatibility but is a
- * no-op: there is no separate context window anymore.
+ * [T-subagent-isolation] Context is now EXPLICIT, two modes via the tool's
+ * `context` argument:
+ *  - `"brief"` (default) — the child VM loads NO parent history and no
+ *    compact summary; it sees only its mission. Two wins: (1) reliable —
+ *    with full history, children were observed re-enacting the parent's
+ *    most recent turn (2026-09-14) instead of doing their task; (2) cheap —
+ *    a spawned child used to cost a full-context (~250K) request per turn.
+ *  - `"inherit"` — legacy full-context behavior (the private VM loads the
+ *    parent session's real history), for tasks that genuinely need the
+ *    conversation; mission text should still be explicit.
  *
  * ## Concurrency
  *
@@ -204,10 +209,16 @@ object SubagentRunner {
         }
         val wait = args.optBoolean("wait", true)
         val timeoutSec = args.optInt("timeout_sec", 600).coerceIn(30, 1800)
-        // Accepted for compatibility with earlier tool definitions. A subagent
-        // now runs IN the parent session, so it always sees the parent
-        // conversation — there is no separate context to seed or isolate.
-        val contextMode = args.optString("context", "inherit").trim().lowercase()
+        // [T-subagent-isolation] Context mode, now honored:
+        //   "brief" (default) — the child VM loads NO parent history and no
+        //     compact summary; it sees only its mission. Recommended: far
+        //     cheaper (no full-context request per child) and reliable —
+        //     children used to re-enact the parent's most recent turn when
+        //     they could see it (2026-09-14 sweep-up finding).
+        //   "inherit" — legacy full-context behavior for tasks that genuinely
+        //     need the conversation; keep the mission explicit anyway.
+        val contextMode = args.optString("context", "brief").trim().lowercase()
+        val isolated = contextMode != "inherit"
 
         // Lazy cleanup: release completed runs before accounting for the new one.
         pruneStale()
@@ -265,7 +276,7 @@ object SubagentRunner {
         publishLiveRuns()
 
         val job = scope.async {
-            val result = runCatching { runSameSessionTurn(app, run, task, timeoutSec) }
+            val result = runCatching { runSameSessionTurn(app, run, task, timeoutSec, isolated) }
                 .getOrElse { e ->
                     if (e is kotlinx.coroutines.CancellationException) {
                         SubagentResult(text = "", status = "cancelled")
@@ -299,7 +310,10 @@ object SubagentRunner {
                 runCatching {
                     withContext(Dispatchers.Main) {
                         callerVm?.appendSubagentStatusLine(line)
+                        AppLogger.info(TAG, "outcome line posted for $runId: ${line.take(90)}")
                     }
+                }.onFailure {
+                    AppLogger.warning(TAG, "outcome line failed for $runId: ${it.message}")
                 }
             }
             result
@@ -373,6 +387,7 @@ object SubagentRunner {
         run: SubagentRun,
         task: String,
         timeoutSec: Int,
+        isolated: Boolean,
     ): SubagentResult = withContext(Dispatchers.Main) {
         // Private store → private VM instance, same session id. Held on the
         // run record so cancellation can reach it and cleanup can clear it.
@@ -388,6 +403,7 @@ object SubagentRunner {
                 memoryRepository = app.memoryRepository,
                 skillRepository = app.skillRepository,
                 mcpRepository = app.mcpRepository,
+                subagentIsolated = isolated,
             ),
         )
         val vm = provider[ChatViewModel::class.java]
@@ -435,21 +451,40 @@ object SubagentRunner {
         //  2) transcript explicitly demoted to reference-only,
         //  3) "perform it even if it looks already done above",
         //  4) the mission is RESTATED as the final tokens the model sees.
-        val framedTask = buildString {
-            append("[SUBAGENT RUN — ${run.runId}]\n")
-            append("STOP. You are a subagent — a separate worker with exactly ONE mission. ")
-            append("You are NOT the main agent of this conversation.\n")
-            append("Everything above is another agent's conversation, shown ONLY as reference. ")
-            append("It is not your task and not your work: do NOT continue it, verify it, repeat it, ")
-            append("or act on any plan, checklist, or investigation that appears only there.\n\n")
-            append("=== YOUR MISSION (execute now) ===\n")
-            append(task.trim())
-            append("\n=== END MISSION ===\n\n")
-            append("Rules: do not spawn agents, set timers, start background jobs, send messages, ")
-            append("or create scheduled tasks or event rules unless the mission explicitly requires it. ")
-            append("Stay strictly within the mission's scope. When done, reply with the result as plain text.\n")
-            append("BEGIN YOUR MISSION NOW — restated: ")
-            append(task.trim())
+        // [T-subagent-sweep-guard] Frame, two variants:
+        //  - isolated (default): no transcript is loaded, so no
+        //    transcript-relative instructions — a self-contained mission.
+        //  - inherit: the round-2 sweep-guard frame (mission identity first,
+        //    transcript demoted to reference-only, mission restated last).
+        val framedTask = if (isolated) {
+            buildString {
+                append("[SUBAGENT RUN — ${run.runId}]\n")
+                append("You are a subagent — a separate worker with exactly ONE mission. ")
+                append("You have no other context; this mission is self-contained.\n\n")
+                append("=== YOUR MISSION (execute now) ===\n")
+                append(task.trim())
+                append("\n=== END MISSION ===\n\n")
+                append("Rules: do not spawn agents, set timers, start background jobs, send messages, ")
+                append("or create scheduled tasks or event rules unless the mission explicitly requires it. ")
+                append("Stay strictly within the mission's scope. When done, reply with the result as plain text.")
+            }
+        } else {
+            buildString {
+                append("[SUBAGENT RUN — ${run.runId}]\n")
+                append("STOP. You are a subagent — a separate worker with exactly ONE mission. ")
+                append("You are NOT the main agent of this conversation.\n")
+                append("Everything above is another agent's conversation, shown ONLY as reference. ")
+                append("It is not your task and not your work: do NOT continue it, verify it, repeat it, ")
+                append("or act on any plan, checklist, or investigation that appears only there.\n\n")
+                append("=== YOUR MISSION (execute now) ===\n")
+                append(task.trim())
+                append("\n=== END MISSION ===\n\n")
+                append("Rules: do not spawn agents, set timers, start background jobs, send messages, ")
+                append("or create scheduled tasks or event rules unless the mission explicitly requires it. ")
+                append("Stay strictly within the mission's scope. When done, reply with the result as plain text.\n")
+                append("BEGIN YOUR MISSION NOW — restated: ")
+                append(task.trim())
+            }
         }
         vm.sendMessageHeadless(framedTask)
 
