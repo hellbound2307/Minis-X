@@ -2,6 +2,7 @@ package com.openminis.app.data
 
 import android.content.Context
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import com.openminis.app.logging.AppLogger
 
 /**
@@ -95,7 +96,7 @@ object SilenceWatchdog {
                 AppLogger.warning(TAG, "no POST_NOTIFICATIONS — dead-check alert only in logs")
                 return
             }
-            val manager = android.app.NotificationManagerCompat.from(context)
+            val manager = NotificationManagerCompat.from(context)
             if (Build.VERSION.SDK_INT >= 26) {
                 val channel = android.app.NotificationChannel(
                     CHANNEL_ID, "Watchdog alerts",
