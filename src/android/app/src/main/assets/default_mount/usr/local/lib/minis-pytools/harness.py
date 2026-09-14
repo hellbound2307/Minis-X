@@ -97,6 +97,15 @@ def run(tool_name, args_b64, code_override_b64=None):
                 print("Harness error: tool must define a callable main(...).")
                 status = 2
             else:
+                # [D3a] Drop unknown kwargs (e.g. the UI-only `tool_title`
+                # field models habitually include): filter to main's signature
+                # unless it takes **kwargs — stray keys must never TypeError.
+                try:
+                    _params = inspect.signature(main).parameters
+                    if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in _params.values()):
+                        args = {k: v for k, v in args.items() if k in _params}
+                except (TypeError, ValueError):
+                    pass
                 main(**args)
     except SystemExit as e:
         # A tool may exit deliberately; treat 0 as success, anything else as failure.

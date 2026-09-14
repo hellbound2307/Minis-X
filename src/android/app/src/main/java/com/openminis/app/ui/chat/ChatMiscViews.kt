@@ -126,6 +126,7 @@ import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Terminal
@@ -534,6 +535,9 @@ internal fun FallbackInfoBlock(block: AssistantBlock, onRevert: (() -> Unit)? = 
         "compact" -> Icons.Default.CloseFullscreen
         "memory" -> Icons.Default.Psychology
         "thinking" -> Icons.Default.Lightbulb
+        // [T-subagent-linger] Subagent run outcome lines (✓/✕ …) posted by
+        // SubagentRunner for background runs.
+        "subagent" -> Icons.Default.SmartToy
         else -> Icons.Default.Info
     }
     // Mirrors iOS systemDividerRow: HStack { Divider, label, Divider }.

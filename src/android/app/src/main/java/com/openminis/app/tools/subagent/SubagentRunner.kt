@@ -15,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -76,6 +77,10 @@ object SubagentRunner {
     private const val MAX_ACTIVE = 3
     private const val MAX_DEPTH = 1
     private const val RESULT_TRUNCATE = 12_000
+    /** [T-subagent-linger] How long a finished run stays on the UI wire so its
+     *  terminal glyph is legible before the panel clears. The run itself stays
+     *  in [runs] for agent_status until pruneStale's 5-minute window. */
+    private const val TERMINAL_LINGER_MS = 10_000L
     /** How long the child VM may take to resolve its provider entry. */
     private const val PROVIDER_WAIT_MS = 5_000L
 
@@ -102,6 +107,8 @@ object SubagentRunner {
         val startedAtMs: Long,
         val status: String,        // running | completed | error | cancelled | timeout
         val elapsedMs: Long,
+        /** Wall-clock end; null while running — drives the linger window. */
+        val endedAtMs: Long? = null,
         val seq: Long,             // monotonic per-process emission counter
     )
 
@@ -116,18 +123,26 @@ object SubagentRunner {
      *  experimental Deferred.getCompleted() needed. */
     private fun publishLiveRuns() {
         val now = System.currentTimeMillis()
-        val snaps = runs.values.map { run ->
-            RunSnapshot(
-                runId = run.runId,
-                label = run.label,
-                sessionId = run.sessionId,
-                depth = run.depth,
-                startedAtMs = run.startedAtMs,
-                status = run.finalStatus ?: "running",
-                elapsedMs = now - run.startedAtMs,
-                seq = emitSeq,
-            )
-        }.sortedBy { it.startedAtMs }
+        val snaps = runs.values
+            // [T-subagent-linger] Running runs always show; finished runs stay
+            // briefly so "✓ done / ✕ failed" is VISIBLE before the panel clears.
+            .filter { run ->
+                run.finalStatus == null ||
+                    (run.endedAtMs?.let { now - it < TERMINAL_LINGER_MS } == true)
+            }
+            .map { run ->
+                RunSnapshot(
+                    runId = run.runId,
+                    label = run.label,
+                    sessionId = run.sessionId,
+                    depth = run.depth,
+                    startedAtMs = run.startedAtMs,
+                    status = run.finalStatus ?: "running",
+                    elapsedMs = now - run.startedAtMs,
+                    endedAtMs = run.endedAtMs,
+                    seq = emitSeq,
+                )
+            }.sortedBy { it.startedAtMs }
         _liveRuns.value = snaps
         emitSeq += 1
     }
@@ -144,6 +159,9 @@ object SubagentRunner {
          *  null while running. Set at the same transition that completes the
          *  deferred — the UI wire reads this instead of polling the deferred. */
         @Volatile var finalStatus: String? = null,
+        /** Wall-clock end of the run; null while running. Drives the UI
+         *  linger window (TERMINAL_LINGER_MS) + frozen elapsed counter. */
+        @Volatile var endedAtMs: Long? = null,
         /** The private child VM — cancelled on /stop and parent cancellation. */
         @Volatile var vm: ChatViewModel? = null,
         /** Private store owning [vm]; cleared when the run ends. */
@@ -257,10 +275,33 @@ object SubagentRunner {
                     }
                 }
             run.finalStatus = result.status
+            run.endedAtMs = System.currentTimeMillis()
             deferred.complete(result)
             // [T-subagent-wire] UI wire: publish on completion (any terminal
             // state — completed/error/cancelled/timeout all land here).
             publishLiveRuns()
+            // [T-subagent-linger] Drop the terminal row after the linger window.
+            scope.launch {
+                delay(TERMINAL_LINGER_MS + 250)
+                publishLiveRuns()
+            }
+            // [T-subagent-linger] Background (wait=false) runs are poll-only
+            // otherwise — surface a one-line outcome in the session so the
+            // user SEES completion/failure without asking agent_status.
+            if (!wait) {
+                val elapsedS = (System.currentTimeMillis() - run.startedAtMs) / 1000
+                val line = when (result.status) {
+                    "completed" -> "✓ Subagent '${run.label}' completed in ${elapsedS}s."
+                    "timeout" -> "✕ Subagent '${run.label}' timed out after ${timeoutSec}s and was cancelled."
+                    "cancelled" -> "✕ Subagent '${run.label}' was cancelled after ${elapsedS}s."
+                    else -> "✕ Subagent '${run.label}' failed after ${elapsedS}s: ${result.text.take(300)}"
+                }
+                runCatching {
+                    withContext(Dispatchers.Main) {
+                        callerVm?.appendSubagentStatusLine(line)
+                    }
+                }
+            }
             result
         }
 
@@ -384,17 +425,31 @@ object SubagentRunner {
         // transcript with no framing and got swept up in it (e.g. re-running
         // the parent's timer tests instead of its own task). Frame the task
         // explicitly: context-only history, exact task, no side effects.
+        // [T-subagent-sweep-guard] Sweep-up guard, round 2. The 2026-09-14
+        // wire-test runs showed both children CONTINUING the parent
+        // conversation instead of their task (they ran parent-plan actions —
+        // SSRF checks, panel greps — and never touched their assigned
+        // command). BUG-4's framing was not enough against a ~250K-token
+        // context: mid-message instructions lose to precedent. Changes:
+        //  1) mission identity first ("you are NOT the main agent"),
+        //  2) transcript explicitly demoted to reference-only,
+        //  3) "perform it even if it looks already done above",
+        //  4) the mission is RESTATED as the final tokens the model sees.
         val framedTask = buildString {
-            append("[SUBAGENT RUN — ${run.runId}] You are now executing as a SUBAGENT.\n")
-            append("The conversation above is CONTEXT ONLY — it was written by other runs. ")
-            append("Do NOT continue, verify, repeat, or 'clean up' anything from it.\n")
-            append("Execute EXACTLY this task and nothing else:\n")
-            append("=== TASK ===\n")
+            append("[SUBAGENT RUN — ${run.runId}]\n")
+            append("STOP. You are a subagent — a separate worker with exactly ONE mission. ")
+            append("You are NOT the main agent of this conversation.\n")
+            append("Everything above is another agent's conversation, shown ONLY as reference. ")
+            append("It is not your task and not your work: do NOT continue it, verify it, repeat it, ")
+            append("or act on any plan, checklist, or investigation that appears only there.\n\n")
+            append("=== YOUR MISSION (execute now) ===\n")
             append(task.trim())
-            append("\n=== END TASK ===\n")
-            append("Rules: do not start side effects (timers via wait_and_resume, background jobs, ")
-            append("messages, or scheduled tasks) unless the task explicitly requires them; ")
-            append("stay within the task's scope; when done, return the result directly.")
+            append("\n=== END MISSION ===\n\n")
+            append("Rules: do not spawn agents, set timers, start background jobs, send messages, ")
+            append("or create scheduled tasks or event rules unless the mission explicitly requires it. ")
+            append("Stay strictly within the mission's scope. When done, reply with the result as plain text.\n")
+            append("BEGIN YOUR MISSION NOW — restated: ")
+            append(task.trim())
         }
         vm.sendMessageHeadless(framedTask)
 
@@ -528,11 +583,17 @@ object SubagentRunner {
     fun cancel(runId: String, appContext: Context) {
         val run = runs[runId] ?: return
         run.finalStatus = "cancelled"
+        run.endedAtMs = System.currentTimeMillis()
         run.deferred.cancel()
         runCatching { run.vm?.cancelStream() }
         releaseRun(run)
         // [T-subagent-wire] UI wire: publish on cancel.
         publishLiveRuns()
+        // [T-subagent-linger] Drop the terminal row after the linger window.
+        scope.launch {
+            delay(TERMINAL_LINGER_MS + 250)
+            publishLiveRuns()
+        }
     }
 
     /**

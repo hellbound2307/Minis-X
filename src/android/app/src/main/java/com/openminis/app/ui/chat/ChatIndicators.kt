@@ -272,7 +272,9 @@ internal fun SubagentActivityPanel(
                 Text(
                     // tick drives recomposition each second while running
                     // (its value participates so nothing is optimized away).
-                    "${(nowMs() - run.startedAtMs) / 1000 + (tick * 0)}s",
+                    // [T-subagent-linger] Freeze at the terminal end time once
+                    // the run finishes so the lingered row shows final elapsed.
+                    "${((run.endedAtMs ?: nowMs()) - run.startedAtMs) / 1000 + (tick * 0)}s",
                     fontSize = 12.sp,
                     color = ChatColors.tertiaryText,
                 )

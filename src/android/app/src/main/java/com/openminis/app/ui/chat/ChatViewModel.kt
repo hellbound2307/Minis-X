@@ -2006,6 +2006,15 @@ class ChatViewModel(
     }
 
     /**
+     * [T-subagent-linger] One-line outcome from [com.openminis.app.tools.subagent.SubagentRunner]
+     * for background (wait=false) runs: "✓ completed / ✕ timed out / ✕ failed"
+     * posted into this session so results are VISIBLE without polling agent_status.
+     */
+    fun appendSubagentStatusLine(text: String) {
+        appendSystemInfo(text = text, iconKind = "subagent")
+    }
+
+    /**
      * Fold the current session history into a single summary stored in
      * `compact_markers`. Mirrors iOS `compactAll()` + Phase-B semantics:
      *
@@ -9687,8 +9696,15 @@ class ChatViewModel(
         argsJson: String,
         tool: com.openminis.app.tools.PyMetaToolStore.PyTool,
     ): ToolExecutionResult {
+        // [T-pytool-kwargs] The model habitually includes the UI-only
+        // `tool_title` field in every tool call; strip it before it can reach
+        // the harness's main(**args). (The harness also filters
+        // non-signature kwargs as a second line of defense.)
+        val cleanedArgs = runCatching {
+            org.json.JSONObject(argsJson).also { it.remove("tool_title") }.toString()
+        }.getOrDefault(argsJson)
         val argsB64 = android.util.Base64.encodeToString(
-            argsJson.toByteArray(Charsets.UTF_8),
+            cleanedArgs.toByteArray(Charsets.UTF_8),
             android.util.Base64.NO_WRAP,
         )
         val timeoutMs = tool.timeoutSeconds * 1000L

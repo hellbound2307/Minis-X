@@ -3891,7 +3891,11 @@ fun ChatScreen(
                     // entries linger until pruned so the user sees what
                     // finished; the panel hides when everything's aged out).
                     val sessionSubagents = subagentRuns.filter { it.sessionId == sessionId }
-                    if (sessionSubagents.any { it.status == "running" }) {
+                    // [T-subagent-linger] liveRuns now ALSO carries finished runs
+                    // for a short linger window — mount the panel whenever
+                    // anything is visible (running OR terminal-just-finished),
+                    // not only while a run is "running".
+                    if (sessionSubagents.isNotEmpty()) {
                         item(key = "__subagent_panel__", contentType = "subagent_panel") {
                             SubagentActivityPanel(
                                 runs = sessionSubagents,
