@@ -102,7 +102,7 @@ object AgentRunRecorder {
         val depth: Int,
     )
 
-    private class RunState(
+    internal class RunState(
         val runId: String,
         val sessionId: String,
         val parentRunId: String?,
@@ -139,7 +139,7 @@ object AgentRunRecorder {
      * A handle to one run. Held by the ChatViewModel that owns the run —
      * passing it explicitly is what makes concurrent parent/child runs safe.
      */
-    class Handle private constructor(private val state: RunState) {
+    class Handle internal constructor(private val state: RunState) {
         val runId: String get() = state.runId
         val sessionId: String get() = state.sessionId
         val parentRunId: String? get() = state.parentRunId
