@@ -186,49 +186,46 @@ object PRootKernel {
     }
 
     /**
+     * [T-global-bind-single-source] THE list of global (session-independent)
+     * `/var/minis/<x>` mounts. Both consumers MUST iterate this:
+     *
+     *  1. [registerGlobalBindMounts] — the host-side map used by
+     *     `resolveHostPath` (file_read / file_write / file_edit / debug.ls).
+     *  2. `ExecutionCoordinator.buildSessionBindMounts` — the map that becomes
+     *     PRoot's live `-b` argv for PersistentShell.
+     *
+     * Registering a subdir in only ONE of the two has now shipped as a bug
+     * three times: mcp-servers (vc36), meta-tools (vc43), runs (vc58). The
+     * failure mode is always the same and always silent — the host side sees
+     * the file, the shell sees an empty rootfs placeholder, and the symptom
+     * looks like "the feature doesn't work" rather than "the mount is missing".
+     * Keep this list the single source of truth; do not re-inline the pairs.
+     */
+    data class GlobalMount(val linuxPath: String, val hostSubPath: String)
+
+    val globalMounts: List<GlobalMount> = listOf(
+        GlobalMount("/var/minis/memory", "memory"),
+        GlobalMount("/var/minis/skills", "skills"),
+        GlobalMount("/var/minis/shared", "shared"),
+        GlobalMount("/var/minis/mcp-servers", "mcp-servers"),
+        GlobalMount("/var/minis/projects", "projects"),
+        GlobalMount("/var/minis/plugins", "plugins/payloads"),
+        GlobalMount("/var/minis/meta-tools", "meta-tools"),
+        GlobalMount("/var/minis/runs", "runs"),
+    )
+
+    /**
      * Register the global (session-independent) Minis bind mounts so direct
      * file I/O tools (file_read, file_edit) can resolve
-     * `/var/minis/{memory,skills,shared}/...` without needing PRoot to be
+     * `/var/minis/{memory,skills,shared,runs}/...` without needing PRoot to be
      * booted or any shell to have started. Safe to call repeatedly.
      */
     fun registerGlobalBindMounts(context: Context) {
         val globalBase = File(context.filesDir, "minis-global")
-        // [T-mcp-integration-android] mcp-servers is global (like memory/skills):
-        // binding it here makes the in-PRoot minis-mcp-cli read/write the SAME
-        // servers.json the Android Settings UI does (host: minis-global/mcp-servers).
-        listOf("memory", "skills", "shared", "mcp-servers").forEach { subdir ->
-            val hostDir = File(globalBase, subdir).also { it.mkdirs() }
-            bindMounts["/var/minis/$subdir"] = hostDir.absolutePath
+        globalMounts.forEach { mount ->
+            val hostDir = File(globalBase, mount.hostSubPath).also { it.mkdirs() }
+            bindMounts[mount.linuxPath] = hostDir.absolutePath
         }
-        // [T-android-projects] Persistent project workspaces — survive rootfs
-        // resets AND session ends. Subdirs created on demand via the
-        // project_create tool; the base is mounted into every session.
-        File(globalBase, "projects").mkdirs()
-        bindMounts["/var/minis/projects"] = File(globalBase, "projects").absolutePath
-        // [T-plugin-payload-persistence] Plugin payloads are APP-SIDE
-        // (minis-global/plugins/payloads/<id>) so they survive rootfs resets;
-        // bind the parent into every session at /var/minis/plugins. The dir
-        // holds only plugin-owned files — declared in manifests, written by
-        // PluginManager at install, never by sessions directly.
-        File(globalBase, "plugins/payloads").mkdirs()
-        bindMounts["/var/minis/plugins"] = File(globalBase, "plugins/payloads").absolutePath
-        // [T-py-meta-tools] Agent-minted Python tools are global (like
-        // skills/memory): binding them here means the in-PRoot harness reads
-        // the SAME tool code the Android-side registry tracks
-        // (host: minis-global/meta-tools/<name>.py + registry.json).
-        // Registry writes happen host-side via the py_meta_tools tool; reads
-        // happen in-PRoot at execution time. Global so tools minted in one
-        // session are callable in every later session.
-        File(globalBase, "meta-tools").mkdirs()
-        bindMounts["/var/minis/meta-tools"] = File(globalBase, "meta-tools").absolutePath
-        // [T-android-run-recorder] Agent run telemetry (Pillar A1) is written
-        // app-side to minis-global/runs. Bind it into every session so the
-        // AGENT can read back its own run logs — tail a long build, answer
-        // "how long did step 3 take", replay a failed turn, diff two runs.
-        // Without this bind the logs exist but only the UI can see them, which
-        // is precisely the blindness the recorder was built to end.
-        File(globalBase, "runs").mkdirs()
-        bindMounts["/var/minis/runs"] = File(globalBase, "runs").absolutePath
     }
 
     fun removeBindMount(linuxPath: String) {

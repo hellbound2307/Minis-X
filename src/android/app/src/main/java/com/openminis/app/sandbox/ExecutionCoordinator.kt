@@ -189,49 +189,19 @@ object ExecutionCoordinator {
             "attachments: prev=$prevAttachments new=${mounts["/var/minis/attachments"]}")
 
         // Global shared directories.
-        // [T-android-mcp-bind-mount] mcp-servers MUST be here, not only in
-        // PRootKernel.registerGlobalBindMounts: PersistentShell builds PRoot's
-        // `-b` argv from THIS map, so a subdir missing here is invisible to the
-        // shell that runs minis-mcp-cli — /var/minis/mcp-servers/servers.json
-        // then resolves to the empty rootfs placeholder and `minis-mcp-cli list`
-        // returns {"servers": [], "count": 0} even though the UI wrote the
-        // server (the UI / debug.ls read via resolveHostPath, a separate map,
-        // which is why they disagreed). Same trap as the external-mounts note
-        // below.
+        // [T-global-bind-single-source] Iterates PRootKernel.globalMounts —
+        // the single list shared with registerGlobalBindMounts. PersistentShell
+        // builds PRoot's `-b` argv from THIS map, so a subdir present only in
+        // the other map is invisible to the shell: /var/minis/<x> then resolves
+        // to the empty rootfs placeholder and the feature silently half-works.
+        // That trap shipped three times (mcp-servers vc36, meta-tools vc43,
+        // runs vc58) before this list was made single-source.
         val globalBase = File(filesDir, "minis-global")
-        listOf("memory", "skills", "shared", "mcp-servers").forEach { subdir ->
-            val hostDir = File(globalBase, subdir).also { it.mkdirs() }
-            val linuxPath = "/var/minis/$subdir"
-            mounts[linuxPath] = hostDir.absolutePath
-            PRootKernel.addBindMount(linuxPath, hostDir.absolutePath)
+        PRootKernel.globalMounts.forEach { globalMount ->
+            val hostDir = File(globalBase, globalMount.hostSubPath).also { it.mkdirs() }
+            mounts[globalMount.linuxPath] = hostDir.absolutePath
+            PRootKernel.addBindMount(globalMount.linuxPath, hostDir.absolutePath)
         }
-
-        // [T-android-projects] Persistent project workspaces — survive session
-        // ends and rootfs resets. MUST be here: PersistentShell builds PRoot's
-        // `-b` argv from THIS map (see mcp-servers note above).
-        val projectsDir = File(globalBase, "projects").also { it.mkdirs() }
-        mounts["/var/minis/projects"] = projectsDir.absolutePath
-        PRootKernel.addBindMount("/var/minis/projects", projectsDir.absolutePath)
-
-        // [T-plugin-payload-persistence] Parent of all plugin payloads — each
-        // plugin's copy lives at /var/minis/plugins/<id> (rewritten from the
-        // manifest's $PAYLOAD placeholder at install). Parent mount, not
-        // per-plugin, so installs never need a re-bind.
-        val payloadsDir = File(globalBase, "plugins/payloads").also { it.mkdirs() }
-        mounts["/var/minis/plugins"] = payloadsDir.absolutePath
-        PRootKernel.addBindMount("/var/minis/plugins", payloadsDir.absolutePath)
-
-        // [T-py-meta-tools-hotfix] The pytool store MUST be here too — this
-        // map feeds the live PRoot -b argv (see mcp-servers note above).
-        // vc43 registered it only in PRootKernel.registerGlobalBindMounts
-        // (host-side resolveHostPath path), so on-device the harness could
-        // not read /var/minis/meta-tools: py_meta_tools test/write failed
-        // introspection and the tool was unusable despite the surface entry.
-        // Same trap as mcp-servers — second occurrence; keep ALL global
-        // /var/minis subdirs in BOTH places.
-        val metaToolsDir = File(globalBase, "meta-tools").also { it.mkdirs() }
-        mounts["/var/minis/meta-tools"] = metaToolsDir.absolutePath
-        PRootKernel.addBindMount("/var/minis/meta-tools", metaToolsDir.absolutePath)
 
         // T277: user-mounted external folders (SAF-picked trees). PersistentShell
         // uses this map verbatim as PRoot's `-b` argv, so any mount missing here
