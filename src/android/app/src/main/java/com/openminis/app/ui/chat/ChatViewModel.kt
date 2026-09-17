@@ -10100,10 +10100,16 @@ class ChatViewModel(
             for (raw in oneShotUrls) MinisOpenUrlBroker.offer(raw)
             val output = if (cleanedOutput.isBlank()) "(no output)" else cleanedOutput
             val exitInfo = if (result.exitCode != 0) " (exit code ${result.exitCode})" else ""
+            // Exit code 124 is the BusyBox/GNU timeout-utility convention for
+            // a command that exceeded its budget. PersistentShell returns this
+            // when its `withTimeoutOrNull(timeout)` wrapper fires.
+            val timedOut = result.exitCode == 124
+
             // [T-android-run-recorder] Shell exit codes + exec duration land in
             // the run log: the generic wrapper around executeTool can only see
             // the ToolExecutionResult string, and "exit 137 after 240s" is the
-            // exact shape of failure this log exists to make visible.
+            // exact shape of failure this log exists to make visible. Declared
+            // after `timedOut` on purpose — it is part of the record.
             com.openminis.app.events.AgentRunRecorder.note(
                 kind = "tool_note",
                 tool = "shell_execute",
@@ -10115,10 +10121,6 @@ class ChatViewModel(
                     "timedOut" to timedOut,
                 ),
             )
-            // Exit code 124 is the BusyBox/GNU timeout-utility convention for
-            // a command that exceeded its budget. PersistentShell returns this
-            // when its `withTimeoutOrNull(timeout)` wrapper fires.
-            val timedOut = result.exitCode == 124
 
             // Redact env-var values that leaked into the captured output
             // before the model sees them. No-op when Privacy Mode is OFF.
