@@ -27,11 +27,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK (preinstalled on the runner image)
+        # [T-ci-setup-android-fix] android-actions/setup-android@v3 broke the
+        # build on 2026-09-17: the action runs `sdkmanager tools`, and the
+        # runner's cmdline-tools 16.0 no longer has a package by that name
+        # ("Warning: Failed to find package 'tools'" → exit 1). The job died
+        # 29s in, before a single line of Kotlin was compiled — an infra
+        # failure that looked like a code failure from the outside.
+        # The ubuntu runner image already ships a complete SDK, so we export
+        # it ourselves instead of letting an action mutate it.
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          for d in "$SDK_ROOT"/cmdline-tools/*/bin; do
+            if [ -x "$d/sdkmanager" ]; then echo "$d" >> "$GITHUB_PATH"; fi
+          done
+          echo "SDK root: $SDK_ROOT"
+          ls "$SDK_ROOT"
 
       - name: Install NDK + CMake
         run: |
+          # Licenses must be accepted BEFORE --install, otherwise sdkmanager
+          # prompts on stdin and exits non-zero in a non-interactive shell.
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "ndk;28.0.12433566" "cmake;3.22.1" "platforms;android-24" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.12433566" >> "$GITHUB_ENV"
 

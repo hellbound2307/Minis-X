@@ -23,6 +23,7 @@ import com.openminis.app.R
 import com.openminis.app.events.AgentRunRecorder
 import com.openminis.app.ui.theme.ChatColors
 import kotlinx.coroutines.delay
+import kotlin.text.buildString
 
 /**
  * [T-android-run-recorder] Pillar A5 — minimal HUD chip.
@@ -92,14 +93,14 @@ internal fun RunHudChip(
                 text = label,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
-                color = ChatColors.onSurfaceVariant,
+                color = ChatColors.tertiaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontFamily = FontFamily.Monospace,
             )
         }
         androidx.compose.foundation.background(
-            color = ChatColors.surfaceContainerHighest.copy(alpha = 0.9f),
+            color = ChatColors.toolCapsuleBg.copy(alpha = 0.9f),
             shape = RoundedCornerShape(12.dp),
         )
     }
