@@ -221,6 +221,14 @@ object PRootKernel {
         // session are callable in every later session.
         File(globalBase, "meta-tools").mkdirs()
         bindMounts["/var/minis/meta-tools"] = File(globalBase, "meta-tools").absolutePath
+        // [T-android-run-recorder] Agent run telemetry (Pillar A1) is written
+        // app-side to minis-global/runs. Bind it into every session so the
+        // AGENT can read back its own run logs — tail a long build, answer
+        // "how long did step 3 take", replay a failed turn, diff two runs.
+        // Without this bind the logs exist but only the UI can see them, which
+        // is precisely the blindness the recorder was built to end.
+        File(globalBase, "runs").mkdirs()
+        bindMounts["/var/minis/runs"] = File(globalBase, "runs").absolutePath
     }
 
     fun removeBindMount(linuxPath: String) {
