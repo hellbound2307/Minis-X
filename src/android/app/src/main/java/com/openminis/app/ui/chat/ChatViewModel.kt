@@ -1262,6 +1262,48 @@ class ChatViewModel(
     var isSubagentRun: Boolean = false
 
     /**
+     * [T-android-run-recorder] Parent run id for a SUBAGENT VM, set by
+     * SubagentRunner right after construction. It is what links the child's run
+     * to the run that spawned it, turning a flat pile of JSONL files into a
+     * tree the HUD and the agent can both walk. Null for a top-level chat VM.
+     */
+    @Volatile
+    var runParentId: String? = null
+
+    /**
+     * [T-android-run-recorder] This VM's telemetry run. One per VM — which is
+     * exactly the point: a subagent runs a CHILD ChatViewModel in this same
+     * process, so a single global "current run" would interleave parent and
+     * child tool calls into one log and race on the active-call id (that was
+     * the vc57 bug). Each VM owning a handle makes the two independent.
+     *
+     * Lazily opened on first tool call, reused across turns, closed on cancel
+     * or by AgentRunRecorder.tick() when the run goes quiet.
+     */
+    @Volatile
+    private var agentRun: com.openminis.app.events.AgentRunRecorder.Handle? = null
+
+    /** Open (or reuse) this VM's run handle. Null when the recorder isn't primed. */
+    private fun ensureAgentRun(): com.openminis.app.events.AgentRunRecorder.Handle? {
+        val existing = agentRun
+        if (existing != null && !existing.isClosed) return existing
+        val opened = com.openminis.app.events.AgentRunRecorder.openRun(
+            sessionId = activeSessionId ?: sessionId ?: "unknown",
+            source = if (isSubagentRun) "subagent" else "chat",
+            parentRunId = runParentId,
+        )
+        agentRun = opened
+        return opened
+    }
+
+    /**
+     * Run id of this VM's telemetry run, if one is open. Read by
+     * SubagentRunner when spawning a child, so the child's run can record
+     * `parentRunId` — that field is what makes the run tree walkable.
+     */
+    val agentRunId: String? get() = agentRun?.runId
+
+    /**
      * Cached reference to the lazily-created [BrowserTabPool] so
      * [ensureSession] can re-point it at the real session id after a rename.
      * Read only through [browserTabPool]; the backing `by lazy` fills this in.
@@ -9411,15 +9453,14 @@ class ChatViewModel(
         assistantId: String,
         currentText: String,
     ): ToolExecutionResult {
-        val runSession = activeSessionId ?: sessionId ?: "unknown"
-        com.openminis.app.events.AgentRunRecorder.ensureRun(runSession)
+        val handle = ensureAgentRun()
         // Redacted BEFORE it reaches the log: tool args routinely carry env-var
         // values (`curl -H "Authorization: $TOKEN"`), and the run log is a file
         // the agent itself can read back.
         val digest = runCatching {
             com.openminis.app.data.EnvVarRedactor.redactIfEnabled(argsJson).first
         }.getOrDefault(name)
-        val callId = com.openminis.app.events.AgentRunRecorder.beginCall(name, digest)
+        val callId = handle?.beginCall(name, digest)
         val startedAt = System.currentTimeMillis()
         var status = "ok"
         var bytes: Int? = null
@@ -9440,7 +9481,7 @@ class ChatViewModel(
             error = t.message ?: t.javaClass.simpleName
             throw t
         } finally {
-            com.openminis.app.events.AgentRunRecorder.endCall(
+            handle?.endCall(
                 tool = name,
                 callId = callId,
                 status = status,
@@ -10058,7 +10099,7 @@ class ChatViewModel(
                     // recorded (throttled) and exposed to the HUD, so a long
                     // build stops being a black box for the agent as well as
                     // for the user.
-                    com.openminis.app.events.AgentRunRecorder.streamLine(cleanedLine)
+                    agentRun?.streamLine(cleanedLine)
                     if (cleanedLine.isEmpty() && rawLine.isNotEmpty()) return@lc
 
                     val idx = toolBlocks.indexOfFirst { it.id == toolId }
@@ -10110,7 +10151,7 @@ class ChatViewModel(
             // the ToolExecutionResult string, and "exit 137 after 240s" is the
             // exact shape of failure this log exists to make visible. Declared
             // after `timedOut` on purpose — it is part of the record.
-            com.openminis.app.events.AgentRunRecorder.note(
+            agentRun?.note(
                 kind = "tool_note",
                 tool = "shell_execute",
                 label = if (timedOut) "timeout" else "exit",
@@ -11995,7 +12036,7 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
         // [T-android-run-recorder] A user-stopped turn is still a finished run:
         // close it here so the JSONL gets an honest `run_end` instead of
         // relying on the recorder's idle sweep.
-        com.openminis.app.events.AgentRunRecorder.closeRun("cancelled")
+        agentRun?.close("cancelled")
         streamJob?.cancel()
         _isStreaming.value = false
         // T-streaming-side-channel: flush any in-flight delta back into the

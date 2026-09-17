@@ -276,7 +276,12 @@ object SubagentRunner {
         publishLiveRuns()
 
         val job = scope.async {
-            val result = runCatching { runSameSessionTurn(app, run, task, timeoutSec, isolated) }
+            // [T-android-run-recorder] The child's telemetry run links to the
+            // caller's run, so parent and child tool calls are two
+            // separate JSONL files joined by parentRunId — not one
+            // interleaved log with a racing active-call id (the vc57 bug).
+            val parentRunId = callerVm?.agentRunId
+            val result = runCatching { runSameSessionTurn(app, run, task, timeoutSec, isolated, parentRunId) }
                 .getOrElse { e ->
                     if (e is kotlinx.coroutines.CancellationException) {
                         SubagentResult(text = "", status = "cancelled")
@@ -388,6 +393,7 @@ object SubagentRunner {
         task: String,
         timeoutSec: Int,
         isolated: Boolean,
+        parentRunId: String? = null,
     ): SubagentResult = withContext(Dispatchers.Main) {
         // Private store → private VM instance, same session id. Held on the
         // run record so cancellation can reach it and cleanup can clear it.
@@ -413,6 +419,8 @@ object SubagentRunner {
         // lan_share) whose effects land in the MAIN session and confuse the
         // parent conversation.
         vm.isSubagentRun = true
+        // [T-android-run-recorder] Link this child's run to the spawner's.
+        vm.runParentId = parentRunId
 
         // Provider readiness, resolved off-Main (the VM's resolver runs on
         // Main.immediate — waiting on Main here would deadlock it).

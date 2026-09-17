@@ -8,33 +8,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * [T-android-run-recorder] Pillar A1 — the agent run event bus.
+ * [T-android-run-recorder] Pillar A1/A2 — the agent run event bus.
  *
- * Why this exists: before vc57 the agent had no machine-readable record of
- * what it did. Every tool call returned a flat string, and nothing measured
- * duration, exit codes, retry counts or partial output. The user could see
- * tool cards in the UI; the AGENT could see nothing, and neither side could
- * answer "how long did step 3 take, what did it cost, and what did it print
- * before it died".
+ * One append-only JSONL file per run:
+ *   `files/minis-global/runs/<session>/<runId>.jsonl`
+ * (bound into every sandbox session at `/var/minis/runs`, so the AGENT can read
+ * back its own telemetry — that is the whole point; a log only the UI can see
+ * would not fix the blindness this exists to fix).
  *
- * This object is deliberately dumb and dependency-free:
+ * ## vc59: handle-based, not global
  *
- *  - one append-only JSONL file per run: `files/minis-global/runs/<session>/<runId>.jsonl`
- *    (crash-safe: a half-written last line is still readable, and the file can
- *    be tailed/filtered from inside the sandbox — the agent reads its own log)
- *  - a bounded in-memory [Snapshot] StateFlow for the UI HUD chip
- *  - a bounded stream tail per active call (first slice of Pillar A2: live
- *    output visibility for long commands, which used to be a black box)
+ * vc57 kept ONE active run in object state with `@Volatile currentCallId`. That
+ * is wrong the moment two runs overlap — and they do: every subagent runs a
+ * child ChatViewModel **in this same process**, so a child's tool calls were
+ * being appended to the parent's run and `currentCallId` was a race between
+ * them. The fix is to stop pretending there is a global "current run":
  *
- * Contract: NEVER throws into the caller, never blocks on I/O longer than a
- * small append, and degrades to a no-op when the app context was never primed
- * (e.g. the :acra reporter process).
+ *  - [openRun] returns a [Handle]; the caller (a ChatViewModel) owns it and
+ *    passes it explicitly to note/beginCall/endCall/streamLine.
+ *  - Runs live in a registry keyed by runId, each with its own lock, so parent
+ *    and child write concurrently without stepping on each other.
+ *  - [activeRuns] exposes a UI-shaped view of every live run — parent and
+ *    children — which is what the HUD chip and the subagent lanes read.
+ *
+ * Contract: never throws into the caller, never blocks longer than a small
+ * append, and degrades to a no-op when the app context was never primed (the
+ * :acra reporter process).
  *
  * Schema (one JSON object per line):
- *   {seq, ts, runId, sessionId, kind, tool?, callId?, status?, durationMs?,
- *    exitCode?, bytes?, label?, digest?, stream?, error?}
+ *   {seq, ts, runId, sessionId, parentRunId?, kind, tool?, callId?, status?,
+ *    durationMs?, exitCode?, bytes?, label?, digest?, stream?, error?}
  *
  * `kind` enum v1 — run_start, run_end, tool_call_start, tool_call_end,
  * tool_stream, tool_note, error.
@@ -43,63 +49,31 @@ object AgentRunRecorder {
 
     private const val TAG = "AgentRunRecorder"
 
-    /** Steps kept in the in-memory snapshot (UI needs a tail, not a history). */
+    /** Steps kept per run in memory (the UI needs a tail, not a history). */
     private const val MAX_STEPS_IN_MEMORY = 200
 
-    /** Rolling local stdin/stdout tail shown in the HUD for the active call. */
+    /** Rolling stdout tail kept per run for the HUD. */
     private const val STREAM_TAIL_CHARS = 4096
 
-    /** A run with no events for this long is closed lazily on the next event. */
+    /** A run with no events for this long is closed by [tick]. */
     private const val IDLE_CLOSE_MS = 180_000L
 
-    /** Retention: keep the newest N run files, then LRU by age. */
+    /** Retention: keep the newest N run files, drop the rest oldest-first. */
     private const val MAX_RUN_FILES = 60
 
-    /** Minimum gap between persisted `tool_stream` lines (in-memory tail is not throttled). */
+    /** Minimum gap between persisted `tool_stream` lines (the in-memory tail is not throttled). */
     private const val STREAM_PERSIST_INTERVAL_MS = 500L
 
-    /** Bounded digest of tool arguments kept in the log (secrets are redacted by the caller). */
-    private const val DIGEST_CHARS = 240
+    /** Minimum gap between UI flow emissions from stream traffic. */
+    private const val UI_PUBLISH_INTERVAL_MS = 250L
 
-    private val lock = Any()
+    /** Bounded digest of tool arguments (already redacted by the caller). */
+    private const val DIGEST_CHARS = 240
 
     @Volatile
     private var baseDir: File? = null
 
-    @Volatile
-    private var currentRunFile: File? = null
-
-    @Volatile
-    private var runId: String? = null
-
-    @Volatile
-    private var sessionId: String? = null
-
-    @Volatile
-    private var runStartedAt = 0L
-
-    @Volatile
-    private var lastEventAt = 0L
-
-    @Volatile
-    private var seq = 0
-
-    @Volatile
-    private var lastStreamPersistAt = 0L
-
-    /** Set while a tool call is in flight; read by the shell stream tap. */
-    @Volatile
-    var currentCallId: String? = null
-        private set
-
-    @Volatile
-    var currentToolName: String? = null
-        private set
-
-    private val steps = ArrayList<Step>(64)
-    private val streamTail = StringBuilder()
-
-    /** Immutable view of the active run for the UI. */
+    /** Immutable step record. */
     data class Step(
         val seq: Int,
         val kind: String,
@@ -111,26 +85,97 @@ object AgentRunRecorder {
         val exitCode: Int?,
     )
 
-    data class Snapshot(
+    /** UI-shaped view of a live run. */
+    data class RunInfo(
         val runId: String,
+        val shortId: String,
         val sessionId: String,
+        val parentRunId: String?,
         val startedAt: Long,
         val lastEventAt: Long,
-        val steps: List<Step>,
         val toolCount: Int,
         val activeTool: String?,
         val activeSince: Long,
-        val streamTail: String,
+        val lastTool: String?,
+        val lastToolMs: Long,
         val status: String,
+        val depth: Int,
     )
 
-    private val _snapshot = MutableStateFlow<Snapshot?>(null)
-    val snapshot: StateFlow<Snapshot?> get() = _snapshot.asStateFlow()
+    private class RunState(
+        val runId: String,
+        val sessionId: String,
+        val parentRunId: String?,
+        val file: File,
+        val startedAt: Long,
+        val depth: Int,
+    ) {
+        val lock = Any()
+        var seq = 0
+        var lastEventAt = startedAt
+        var lastUiPublishAt = 0L
+        var lastStreamPersistAt = 0L
+        var callSeq = 0
+        var activeCallId: String? = null
+        var activeTool: String? = null
+        var activeSince = 0L
+        var status = "running"
+        var toolCount = 0
+        var lastTool: String? = null
+        var lastToolMs = 0L
+        @Volatile var closed = false
+        val steps = ArrayList<Step>(64)
+        val streamTail = StringBuilder()
+    }
+
+    private val runs = ConcurrentHashMap<String, RunState>()
+
+    private val _activeRuns = MutableStateFlow<List<RunInfo>>(emptyList())
+
+    /** Every live run, parent and children, oldest first. */
+    val activeRuns: StateFlow<List<RunInfo>> = _activeRuns.asStateFlow()
+
+    /**
+     * A handle to one run. Held by the ChatViewModel that owns the run —
+     * passing it explicitly is what makes concurrent parent/child runs safe.
+     */
+    class Handle internal constructor(internal val state: RunState) {
+        val runId: String get() = state.runId
+        val sessionId: String get() = state.sessionId
+        val parentRunId: String? get() = state.parentRunId
+        val isClosed: Boolean get() = state.closed
+
+        fun note(
+            kind: String,
+            tool: String? = null,
+            label: String? = null,
+            status: String? = null,
+            digest: String? = null,
+            fields: Map<String, Any?>? = null,
+        ) = AgentRunRecorder.noteOn(state, kind, tool, label, status, digest, fields)
+
+        fun beginCall(tool: String, digest: String?): String? =
+            AgentRunRecorder.beginCallOn(state, tool, digest)
+
+        fun endCall(
+            tool: String,
+            callId: String?,
+            status: String,
+            durationMs: Long,
+            exitCode: Int? = null,
+            bytes: Int? = null,
+            error: String? = null,
+        ) = AgentRunRecorder.endCallOn(state, tool, callId, status, durationMs, exitCode, bytes, error)
+
+        fun streamLine(line: String) = AgentRunRecorder.streamLineOn(state, line)
+
+        fun close(status: String = "ok") = AgentRunRecorder.closeRun(state.runId, status)
+    }
 
     /**
      * Hand the recorder its storage root. Called once from Application.onCreate
      * (mirrors AppLogger.primeContext). Without this the recorder is a no-op —
-     * which is exactly what we want in the ACRA reporter process.
+     * which is what we want in the ACRA reporter process.
      */
     fun prime(context: Context) {
         runCatching {
@@ -140,91 +185,102 @@ object AgentRunRecorder {
         }.onFailure { Log.w(TAG, "prime failed: ${it.message}") }
     }
 
-    /** True when the recorder can actually persist. */
+    /** True when the recorder can persist. */
     val isReady: Boolean get() = baseDir != null
 
     /**
-     * Ensure a run exists for [sessionId] and return its id. Closes a stale run
-     * (idle past [IDLE_CLOSE_MS], or a different session) first, so a run maps
-     * to one contiguous piece of work rather than to the app's lifetime.
+     * Open a run. [parentRunId] links a subagent run to the run that spawned
+     * it — that link is what turns a flat log into a tree.
      */
-    fun ensureRun(sessionId: String, source: String = "chat"): String? {
-        if (baseDir == null) return null
-        synchronized(lock) {
-            val now = System.currentTimeMillis()
-            val active = runId
-            val stale = active != null &&
-                (this.sessionId != sessionId || now - lastEventAt > IDLE_CLOSE_MS)
-            if (active != null && !stale) return active
-            if (active != null) closeRunLocked("superseded", now)
-            return beginRunLocked(sessionId, source, now)
-        }
-    }
-
-    private fun beginRunLocked(sessionId: String, source: String, now: Long): String? {
+    fun openRun(
+        sessionId: String,
+        source: String = "chat",
+        parentRunId: String? = null,
+    ): Handle? {
         val root = baseDir ?: return null
         return runCatching {
+            val now = System.currentTimeMillis()
             val id = "r_" + now.toString(36) + "_" + UUID.randomUUID().toString().take(4)
             val safeSession = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48)
             val dir = File(root, safeSession).apply { mkdirs() }
-            val file = File(dir, "$id.jsonl")
-            runId = id
-            this.sessionId = sessionId
-            runStartedAt = now
-            lastEventAt = now
-            seq = 0
-            steps.clear()
-            streamTail.setLength(0)
-            currentCallId = null
-            currentToolName = null
-            currentRunFile = file
-            writeLineLocked(
-                JSONObject()
-                    .put("kind", "run_start")
-                    .put("label", source),
-                now,
+            val depth = if (parentRunId == null) 0 else (runs[parentRunId]?.depth ?: 0) + 1
+            val state = RunState(
+                runId = id,
+                sessionId = sessionId,
+                parentRunId = parentRunId,
+                file = File(dir, "$id.jsonl"),
+                startedAt = now,
+                depth = depth,
             )
-            publishLocked("running")
-            id
+            runs[id] = state
+            writeLine(state, JSONObject().put("kind", "run_start").put("label", source), now)
+            publishUi()
+            Handle(state)
         }.getOrElse {
-            Log.w(TAG, "beginRun failed: ${it.message}")
+            Log.w(TAG, "openRun failed: ${it.message}")
             null
         }
     }
 
-    /** Close the active run (idempotent). */
-    fun closeRun(status: String = "ok") {
-        if (runId == null) return
-        synchronized(lock) { closeRunLocked(status, System.currentTimeMillis()) }
-    }
-
-    private fun closeRunLocked(status: String, now: Long) {
-        runCatching {
-            writeLineLocked(JSONObject().put("kind", "run_end").put("status", status), now)
-            publishLocked(status)
+    /** Close a run by id (idempotent). */
+    fun closeRun(runId: String, status: String = "ok") {
+        val state = runs[runId] ?: return
+        synchronized(state.lock) {
+            if (state.closed) return
+            state.closed = true
+            state.status = status
+            runCatching {
+                writeLine(state, JSONObject().put("kind", "run_end").put("status", status), System.currentTimeMillis())
+            }
         }
-        currentRunFile = null
-        runId = null
-        sessionId = null
-        currentCallId = null
-        currentToolName = null
-        _snapshot.value = null
-        pruneOldRunsLocked()
+        runs.remove(runId)
+        publishUi()
+        pruneOldRuns()
     }
 
     /**
-     * Log a discrete step. [digest] should already be redacted by the caller.
+     * Called by the UI once per second. Closes runs that have gone quiet, so
+     * every JSONL ends with a `run_end` even when the agent loop exits through
+     * one of its many paths (cancel, provider error, model timeout) instead of
+     * a single clean finally-block. Avoids a coroutine per run.
      */
-    fun note(
+    fun tick() {
+        val now = System.currentTimeMillis()
+        runs.values.toList().forEach { state ->
+            if (now - state.lastEventAt > IDLE_CLOSE_MS) closeRun(state.runId, "idle")
+        }
+    }
+
+    /** Raw JSONL of one run. */
+    fun readRun(sessionId: String, runId: String): String? = runCatching {
+        val root = baseDir ?: return null
+        val safeSession = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48)
+        File(File(root, safeSession), "$runId.jsonl").takeIf { it.exists() }?.readText()
+    }.getOrNull()
+
+    /** Newest-first run files. */
+    fun recentRunFiles(limit: Int = 10): List<File> = runCatching {
+        val root = baseDir ?: return emptyList()
+        root.walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".jsonl") }
+            .sortedByDescending { it.lastModified() }
+            .take(limit)
+            .toList()
+    }.getOrDefault(emptyList())
+
+    // ------------------------------------------------------------- run events
+
+    internal fun noteOn(
+        state: RunState,
         kind: String,
-        tool: String? = null,
-        label: String? = null,
-        status: String? = null,
-        digest: String? = null,
-        fields: Map<String, Any?>? = null,
+        tool: String?,
+        label: String?,
+        status: String?,
+        digest: String?,
+        fields: Map<String, Any?>?,
     ) {
-        if (runId == null) return
-        synchronized(lock) {
+        if (state.closed) return
+        synchronized(state.lock) {
             runCatching {
                 val obj = JSONObject().put("kind", kind)
                 tool?.let { obj.put("tool", it) }
@@ -233,48 +289,50 @@ object AgentRunRecorder {
                 digest?.let { obj.put("digest", it.take(DIGEST_CHARS)) }
                 fields?.forEach { (k, v) -> if (v != null) obj.put(k, v) }
                 val now = System.currentTimeMillis()
-                writeLineLocked(obj, now)
-                addStepLocked(kind, tool, label, status ?: "ok", now, null, null)
-                publishLocked("running")
+                writeLine(state, obj, now)
+                addStep(state, kind, tool, label, status ?: "ok", now, null, null)
+                publishUi()
             }
         }
     }
 
-    /** Mark the start of a tool call. Returns the call id (also in [currentCallId]). */
-    fun beginCall(tool: String, digest: String?): String? {
-        if (runId == null) return null
-        synchronized(lock) {
+    internal fun beginCallOn(state: RunState, tool: String, digest: String?): String? {
+        if (state.closed) return null
+        synchronized(state.lock) {
             val now = System.currentTimeMillis()
-            val callId = "c_" + (++seq)
-            currentCallId = callId
-            currentToolName = tool
-            streamTail.setLength(0)
-            lastStreamPersistAt = 0L
+            val callId = "c_" + (++state.callSeq)
+            state.activeCallId = callId
+            state.activeTool = tool
+            state.activeSince = now
+            state.toolCount += 1
+            state.streamTail.setLength(0)
+            state.lastStreamPersistAt = 0L
             runCatching {
                 val obj = JSONObject()
                     .put("kind", "tool_call_start")
                     .put("tool", tool)
                     .put("callId", callId)
                 digest?.let { obj.put("digest", it.take(DIGEST_CHARS)) }
-                writeLineLocked(obj, now)
-                addStepLocked("tool_call_start", tool, digest, "running", now, null, null)
-                publishLocked("running")
+                writeLine(state, obj, now)
+                addStep(state, "tool_call_start", tool, digest, "running", now, null, null)
+                publishUi()
             }
             return callId
         }
     }
 
-    /** Mark the end of a tool call. */
-    fun endCall(
+    internal fun endCallOn(
+        state: RunState,
         tool: String,
         callId: String?,
         status: String,
         durationMs: Long,
-        exitCode: Int? = null,
-        bytes: Int? = null,
-        error: String? = null,
+        exitCode: Int?,
+        bytes: Int?,
+        error: String?,
     ) {
-        synchronized(lock) {
+        if (state.closed) return
+        synchronized(state.lock) {
             runCatching {
                 val now = System.currentTimeMillis()
                 val obj = JSONObject()
@@ -286,92 +344,68 @@ object AgentRunRecorder {
                 exitCode?.let { obj.put("exitCode", it) }
                 bytes?.let { obj.put("bytes", it) }
                 error?.let { obj.put("error", it.take(DIGEST_CHARS)) }
-                writeLineLocked(obj, now)
-                addStepLocked("tool_call_end", tool, null, status, now, durationMs, exitCode)
-                currentCallId = null
-                currentToolName = null
-                publishLocked("running")
+                writeLine(state, obj, now)
+                addStep(state, "tool_call_end", tool, null, status, now, durationMs, exitCode)
+                state.activeCallId = null
+                state.activeTool = null
+                state.activeSince = 0L
+                state.lastTool = tool
+                state.lastToolMs = durationMs
+                publishUi()
             }
         }
     }
 
     /**
-     * Pillar A2 — live output tap. Called for every line of shell output.
-     * The in-memory tail is always updated (cheap); the JSONL record is
-     * throttled so a chatty build doesn't write thousands of lines.
+     * Pillar A2 — live output tap. The in-memory tail always updates (cheap);
+     * the JSONL record and the UI flow are throttled so a chatty build neither
+     * writes thousands of lines nor re-renders the chip per line.
      */
-    fun streamLine(line: String) {
-        if (runId == null) return
-        synchronized(lock) {
-            if (streamTail.length > STREAM_TAIL_CHARS) {
-                streamTail.delete(0, streamTail.length - STREAM_TAIL_CHARS)
+    internal fun streamLineOn(state: RunState, line: String) {
+        if (state.closed) return
+        synchronized(state.lock) {
+            if (state.streamTail.length > STREAM_TAIL_CHARS) {
+                state.streamTail.delete(0, state.streamTail.length - STREAM_TAIL_CHARS)
             }
-            streamTail.append(line).append('\n')
+            state.streamTail.append(line).append('\n')
             val now = System.currentTimeMillis()
-            if (now - lastStreamPersistAt >= STREAM_PERSIST_INTERVAL_MS) {
-                lastStreamPersistAt = now
+            if (now - state.lastStreamPersistAt >= STREAM_PERSIST_INTERVAL_MS) {
+                state.lastStreamPersistAt = now
                 runCatching {
-                    writeLineLocked(
+                    writeLine(
+                        state,
                         JSONObject()
                             .put("kind", "tool_stream")
-                            .put("tool", currentToolName ?: "shell")
+                            .put("tool", state.activeTool ?: "shell")
                             .put("stream", line.take(400)),
                         now,
                     )
                 }
             }
-            publishLocked("running")
+            if (now - state.lastUiPublishAt >= UI_PUBLISH_INTERVAL_MS) publishUi()
         }
     }
 
-    /** Current rolling output tail of the active call (for the HUD). */
-    fun currentStreamTail(): String = synchronized(lock) { streamTail.toString() }
-
-    /**
-     * Called by the UI once per second while the HUD is visible. Closes a run
-     * that has gone quiet, so the JSONL always ends with a `run_end` even when
-     * the loop exits through one of its many paths — the alternative was a
-     * coroutine per run, which this recorder deliberately avoids.
-     */
-    fun tick() {
-        val rid = runId ?: return
-        if (System.currentTimeMillis() - lastEventAt > IDLE_CLOSE_MS) {
-            synchronized(lock) {
-                if (runId == rid) closeRunLocked("idle", System.currentTimeMillis())
-            }
-        }
+    /** Test/debug hook: forget all in-memory state (does not touch disk). */
+    fun resetForTest() {
+        runs.clear()
+        _activeRuns.value = emptyList()
     }
-
-    /** Raw JSONL of a run, by run id, for the agent/replay surface. */
-    fun readRun(sessionId: String, runId: String): String? = runCatching {
-        val root = baseDir ?: return null
-        val safeSession = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48)
-        File(File(root, safeSession), "$runId.jsonl").takeIf { it.exists() }?.readText()
-    }.getOrNull()
-
-    /** Newest-first run files (used by replay / pruning diagnostics). */
-    fun recentRunFiles(limit: Int = 10): List<File> = runCatching {
-        val root = baseDir ?: return emptyList()
-        root.walkTopDown()
-            .filter { it.isFile && it.name.endsWith(".jsonl") }
-            .sortedByDescending { it.lastModified() }
-            .take(limit)
-            .toList()
-    }.getOrDefault(emptyList())
 
     // ---------------------------------------------------------------- internals
 
-    private fun writeLineLocked(obj: JSONObject, now: Long) {
-        val rid = runId ?: return
-        lastEventAt = now
-        obj.put("seq", ++seq)
+    private fun writeLine(state: RunState, obj: JSONObject, now: Long) {
+        state.lastEventAt = now
+        obj.put("seq", ++state.seq)
         obj.put("ts", now)
-        obj.put("runId", rid)
-        sessionId?.let { obj.put("sessionId", it) }
-        currentRunFile?.appendText(obj.toString() + "\n")
+        obj.put("runId", state.runId)
+        obj.put("sessionId", state.sessionId)
+        state.parentRunId?.let { obj.put("parentRunId", it) }
+        state.file.appendText(obj.toString() + "\n")
     }
 
-    private fun addStepLocked(
+    private fun addStep(
+        state: RunState,
         kind: String,
         tool: String?,
         label: String?,
@@ -380,29 +414,34 @@ object AgentRunRecorder {
         durationMs: Long?,
         exitCode: Int?,
     ) {
-        steps.add(Step(seq, kind, tool, label?.take(80), status, now, durationMs, exitCode))
-        while (steps.size > MAX_STEPS_IN_MEMORY) steps.removeAt(0)
+        state.steps.add(Step(state.seq, kind, tool, label?.take(80), status, now, durationMs, exitCode))
+        while (state.steps.size > MAX_STEPS_IN_MEMORY) state.steps.removeAt(0)
     }
 
-    private fun publishLocked(status: String) {
-        val rid = runId ?: return
-        val active = currentCallId
-        _snapshot.value = Snapshot(
-            runId = rid,
-            sessionId = sessionId ?: "",
-            startedAt = runStartedAt,
-            lastEventAt = lastEventAt,
-            steps = steps.takeLast(20),
-            toolCount = steps.count { it.kind == "tool_call_start" },
-            activeTool = if (active != null) currentToolName else null,
-            activeSince = if (active != null) lastEventAt else 0L,
-            streamTail = streamTail.toString(),
-            status = status,
-        )
+    private fun publishUi() {
+        val snaps = runs.values.map { s ->
+            RunInfo(
+                runId = s.runId,
+                shortId = s.runId.substringAfterLast('_'),
+                sessionId = s.sessionId,
+                parentRunId = s.parentRunId,
+                startedAt = s.startedAt,
+                lastEventAt = s.lastEventAt,
+                toolCount = s.toolCount,
+                activeTool = s.activeTool,
+                activeSince = s.activeSince,
+                lastTool = s.lastTool,
+                lastToolMs = s.lastToolMs,
+                status = s.status,
+                depth = s.depth,
+            )
+        }.sortedBy { it.startedAt }
+        runs.values.forEach { it.lastUiPublishAt = System.currentTimeMillis() }
+        _activeRuns.value = snaps
     }
 
     /** Keep the newest [MAX_RUN_FILES] run files; drop the rest (oldest first). */
-    private fun pruneOldRunsLocked() {
+    private fun pruneOldRuns() {
         runCatching {
             val root = baseDir ?: return
             val files = root.walkTopDown()
@@ -410,24 +449,9 @@ object AgentRunRecorder {
                 .sortedByDescending { it.lastModified() }
                 .toList()
             files.drop(MAX_RUN_FILES).forEach { it.delete() }
-            // Drop now-empty session dirs.
             root.listFiles()?.forEach { dir ->
                 if (dir.isDirectory && dir.listFiles()?.isEmpty() == true) dir.delete()
             }
-        }
-    }
-
-    /** Test/debug hook: forget all in-memory state (does not touch disk). */
-    fun resetForTest() {
-        synchronized(lock) {
-            runId = null
-            sessionId = null
-            currentRunFile = null
-            currentCallId = null
-            currentToolName = null
-            steps.clear()
-            streamTail.setLength(0)
-            _snapshot.value = null
         }
     }
 }

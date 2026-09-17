@@ -23,31 +23,40 @@ import com.openminis.app.ui.theme.ChatColors
 import kotlinx.coroutines.delay
 
 /**
- * [T-android-run-recorder] Pillar A5 — minimal run HUD.
+ * [T-android-run-recorder] Pillar A5 — run HUD.
  *
- * One consolidated status line for the active agent run: short run id, tool
- * count, the tool currently executing (with its own elapsed time) and the run's
- * total elapsed time. Auto-hides when there is no running run for this session.
+ * One consolidated status line for the session's live work: run id, tool count,
+ * the tool currently executing (with its own elapsed), the run's total elapsed,
+ * and how many subagent runs are live underneath it.
  *
- * It also drives [AgentRunRecorder.tick] once per second, which is what closes
- * the on-disk JSONL with a `run_end` when the agent loop exits through one of
- * its many paths (cancel, provider error, model timeout) instead of a single
- * clean finally-block. The HUD only exists while the chat is on screen, so the
- * sweep is bounded by the user actually looking at the run.
+ * vc59 changes, both from reading a real screenshot of vc57:
+ *  - the id was `takeLast(6)`, which straddled the timestamp/uuid boundary and
+ *    rendered as `p_1d3e`; the recorder now exposes a proper [RunInfo.shortId].
+ *  - when nothing was executing the chip showed count-only and looked stalled;
+ *    it now falls back to the last completed tool and its duration.
+ *  - it reads [AgentRunRecorder.activeRuns] rather than a single global
+ *    snapshot, so a subagent's run no longer masquerades as the parent's.
+ *
+ * It also drives [AgentRunRecorder.tick] once per second, which closes runs
+ * that have gone quiet — that is what guarantees a `run_end` in the JSONL when
+ * the agent loop exits through one of its many paths (cancel, provider error,
+ * model timeout) instead of a clean finally-block.
  */
 @Composable
 internal fun RunHudChip(
     sessionId: String,
     modifier: Modifier = Modifier,
 ) {
-    val snapshot by AgentRunRecorder.snapshot.collectAsState()
+    val allRuns by AgentRunRecorder.activeRuns.collectAsState()
+    val sessionRuns = allRuns.filter { it.sessionId == sessionId }
+    if (sessionRuns.isEmpty()) return
 
-    // App-global recorder, per-session display: another session's run must not
-    // leak into this chat.
-    val run = snapshot
-    if (run == null || run.sessionId != sessionId || run.status != "running") return
+    // The top-level run for this session; a session with only children (a
+    // spawn from a headless/scheduled turn) still shows something.
+    val primary = sessionRuns.firstOrNull { it.parentRunId == null } ?: sessionRuns.first()
+    val childCount = sessionRuns.count { it.parentRunId != null }
 
-    LaunchedEffect(run.runId) {
+    LaunchedEffect(primary.runId) {
         while (true) {
             AgentRunRecorder.tick()
             delay(1000)
@@ -55,16 +64,18 @@ internal fun RunHudChip(
     }
 
     val now = System.currentTimeMillis()
-    val elapsedSec = (now - run.startedAt) / 1000
-    val activeSec = if (run.activeSince > 0) (now - run.activeSince) / 1000 else 0L
+    val elapsedSec = (now - primary.startedAt) / 1000
+    val activeSec = if (primary.activeSince > 0) (now - primary.activeSince) / 1000 else 0L
 
     val label = buildString {
         append("run ")
-        append(run.runId.takeLast(6))
+        append(primary.shortId)
         append(" · ")
-        append(run.toolCount)
-        append(if (run.toolCount == 1) " tool" else " tools")
-        run.activeTool?.let { tool ->
+        append(primary.toolCount)
+        append(if (primary.toolCount == 1) " tool" else " tools")
+
+        val tool = primary.activeTool
+        if (tool != null) {
             append(" · ")
             append(tool)
             if (activeSec > 0) {
@@ -72,7 +83,26 @@ internal fun RunHudChip(
                 append(activeSec)
                 append("s")
             }
+        } else {
+            // Idle between calls: show what just finished, so the chip never
+            // reads as a bare counter while work is clearly in flight.
+            primary.lastTool?.let { last ->
+                append(" · last ")
+                append(last)
+                if (primary.lastToolMs > 0) {
+                    append(" ")
+                    append(primary.lastToolMs / 1000.0)
+                    append("s")
+                }
+            }
         }
+
+        if (childCount > 0) {
+            append(" · +")
+            append(childCount)
+            append(" sub")
+        }
+
         append(" · ")
         append(elapsedSec)
         append("s")
