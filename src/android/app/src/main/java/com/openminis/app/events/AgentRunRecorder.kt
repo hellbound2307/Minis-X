@@ -139,7 +139,7 @@ object AgentRunRecorder {
      * A handle to one run. Held by the ChatViewModel that owns the run —
      * passing it explicitly is what makes concurrent parent/child runs safe.
      */
-    class Handle internal constructor(internal val state: RunState) {
+    class Handle private constructor(private val state: RunState) {
         val runId: String get() = state.runId
         val sessionId: String get() = state.sessionId
         val parentRunId: String? get() = state.parentRunId
@@ -270,7 +270,7 @@ object AgentRunRecorder {
 
     // ------------------------------------------------------------- run events
 
-    internal fun noteOn(
+    private fun noteOn(
         state: RunState,
         kind: String,
         tool: String?,
@@ -296,7 +296,7 @@ object AgentRunRecorder {
         }
     }
 
-    internal fun beginCallOn(state: RunState, tool: String, digest: String?): String? {
+    private fun beginCallOn(state: RunState, tool: String, digest: String?): String? {
         if (state.closed) return null
         synchronized(state.lock) {
             val now = System.currentTimeMillis()
@@ -321,7 +321,7 @@ object AgentRunRecorder {
         }
     }
 
-    internal fun endCallOn(
+    private fun endCallOn(
         state: RunState,
         tool: String,
         callId: String?,
@@ -361,7 +361,7 @@ object AgentRunRecorder {
      * the JSONL record and the UI flow are throttled so a chatty build neither
      * writes thousands of lines nor re-renders the chip per line.
      */
-    internal fun streamLineOn(state: RunState, line: String) {
+    private fun streamLineOn(state: RunState, line: String) {
         if (state.closed) return
         synchronized(state.lock) {
             if (state.streamTail.length > STREAM_TAIL_CHARS) {
