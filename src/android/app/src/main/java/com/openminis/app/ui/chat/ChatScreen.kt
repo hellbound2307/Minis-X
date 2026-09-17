@@ -3884,7 +3884,14 @@ fun ChatScreen(
                             )
                         }
                     }
-                    // [T-subagent-wire] Audit P1 — live subagent activity
+                // [T-android-run-recorder] Pillar A5 — run HUD chip.
+                // Lives in the same message-list area so it's visible alongside
+                // the subagent panel and compact indicator. Auto-hides when
+                // no run is active for this session.
+                item(key = "__run_hud__", contentType = "run_hud") {
+                    RunHudChip(sessionId = sessionId)
+                }
+                // [T-subagent-wire] Audit P1 — live subagent activity
                     // panel (collected at the composable top; here only the
                     // filter + mount). Shows ONLY runs belonging to THIS
                     // session with at least one still running (completed

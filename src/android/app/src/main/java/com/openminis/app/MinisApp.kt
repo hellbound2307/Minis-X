@@ -266,6 +266,13 @@ class MinisApp : Application(), ImageLoaderFactory {
         // the exact launch where the user is trying to read the crash files.
         AppLogger.primeContext(this)
 
+        // [T-android-run-recorder] Pillar A1: give the agent run recorder its
+        // storage root before anything can emit a step. Same prime-contract as
+        // AppLogger above — no I/O beyond an mkdir, and a no-op if the root
+        // can't be resolved (the recorder then silently degrades rather than
+        // throwing inside a tool call).
+        com.openminis.app.events.AgentRunRecorder.prime(this)
+
         // [T-codex-fast-mode] Capture the app context + warm the Fast Mode
         // flag cache so the provider layer (no Context) can read it at
         // request-build time — including offload / title-gen calls that

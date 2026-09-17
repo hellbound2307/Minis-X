@@ -9389,7 +9389,70 @@ class ChatViewModel(
         tools: List<AgentToolDefinition>,
     ): String? = preflightValidateToolCallImpl(name, args, tools)
 
+    /**
+     * [T-android-run-recorder] Pillar A1/A2 — instrumentation wrapper.
+     *
+     * EVERY named tool call passes through here (this is the single dispatch
+     * point the permission gate above already relies on), so one wrapper gives
+     * us a complete, ordered record of the turn: which tool, when it started,
+     * how long it ran, and whether it succeeded. The previous behaviour — a
+     * flat string per call and no timing — is why "why was that slow / what
+     * failed" was unanswerable.
+     *
+     * The wrapper is deliberately thin and fail-open: [AgentRunRecorder] never
+     * throws into the caller, and the original result is returned unchanged
+     * (the recorder is an observer, not a participant).
+     */
     private suspend fun executeTool(
+        name: String,
+        argsJson: String,
+        toolId: String,
+        toolBlocks: MutableList<AssistantBlock>,
+        assistantId: String,
+        currentText: String,
+    ): ToolExecutionResult {
+        val runSession = activeSessionId ?: sessionId ?: "unknown"
+        com.openminis.app.events.AgentRunRecorder.ensureRun(runSession)
+        // Redacted BEFORE it reaches the log: tool args routinely carry env-var
+        // values (`curl -H "Authorization: $TOKEN"`), and the run log is a file
+        // the agent itself can read back.
+        val digest = runCatching {
+            com.openminis.app.data.EnvVarRedactor.redactIfEnabled(argsJson).first
+        }.getOrDefault(name)
+        val callId = com.openminis.app.events.AgentRunRecorder.beginCall(name, digest)
+        val startedAt = System.currentTimeMillis()
+        var status = "ok"
+        var bytes: Int? = null
+        var error: String? = null
+        try {
+            val result =
+                executeToolInner(name, argsJson, toolId, toolBlocks, assistantId, currentText)
+            status = when {
+                result.timedOut -> "timeout"
+                result.success -> "ok"
+                else -> "error"
+            }
+            bytes = result.output.length
+            if (!result.success) error = result.output.take(240)
+            return result
+        } catch (t: Throwable) {
+            status = "threw"
+            error = t.message ?: t.javaClass.simpleName
+            throw t
+        } finally {
+            com.openminis.app.events.AgentRunRecorder.endCall(
+                tool = name,
+                callId = callId,
+                status = status,
+                durationMs = System.currentTimeMillis() - startedAt,
+                exitCode = null,
+                bytes = bytes,
+                error = error,
+            )
+        }
+    }
+
+    private suspend fun executeToolInner(
         name: String,
         argsJson: String,
         toolId: String,
@@ -9990,6 +10053,12 @@ class ChatViewModel(
                     // output doesn't grow blank rows.
                     val (cleanedLine, capturedUrls) = MinisUrlMarker.extract(rawLine)
                     for (raw in capturedUrls) MinisOpenUrlBroker.offer(raw)
+                    // [T-android-run-recorder] Pillar A2 — live output tap.
+                    // Same stream the tool card already shows, now also
+                    // recorded (throttled) and exposed to the HUD, so a long
+                    // build stops being a black box for the agent as well as
+                    // for the user.
+                    com.openminis.app.events.AgentRunRecorder.streamLine(cleanedLine)
                     if (cleanedLine.isEmpty() && rawLine.isNotEmpty()) return@lc
 
                     val idx = toolBlocks.indexOfFirst { it.id == toolId }
@@ -10031,6 +10100,21 @@ class ChatViewModel(
             for (raw in oneShotUrls) MinisOpenUrlBroker.offer(raw)
             val output = if (cleanedOutput.isBlank()) "(no output)" else cleanedOutput
             val exitInfo = if (result.exitCode != 0) " (exit code ${result.exitCode})" else ""
+            // [T-android-run-recorder] Shell exit codes + exec duration land in
+            // the run log: the generic wrapper around executeTool can only see
+            // the ToolExecutionResult string, and "exit 137 after 240s" is the
+            // exact shape of failure this log exists to make visible.
+            com.openminis.app.events.AgentRunRecorder.note(
+                kind = "tool_note",
+                tool = "shell_execute",
+                label = if (timedOut) "timeout" else "exit",
+                status = if (result.exitCode == 0) "ok" else "nonzero",
+                fields = mapOf(
+                    "exitCode" to result.exitCode,
+                    "durationMs" to result.durationMs,
+                    "timedOut" to timedOut,
+                ),
+            )
             // Exit code 124 is the BusyBox/GNU timeout-utility convention for
             // a command that exceeded its budget. PersistentShell returns this
             // when its `withTimeoutOrNull(timeout)` wrapper fires.
@@ -11906,6 +11990,10 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
 
     fun cancelStream() {
         AppLogger.info(TAG_STREAM, "cancelStream invoked _isStreaming=false (sid=$activeSessionId)")
+        // [T-android-run-recorder] A user-stopped turn is still a finished run:
+        // close it here so the JSONL gets an honest `run_end` instead of
+        // relying on the recorder's idle sweep.
+        com.openminis.app.events.AgentRunRecorder.closeRun("cancelled")
         streamJob?.cancel()
         _isStreaming.value = false
         // T-streaming-side-channel: flush any in-flight delta back into the
