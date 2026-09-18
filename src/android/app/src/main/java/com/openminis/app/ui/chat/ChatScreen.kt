@@ -4120,36 +4120,26 @@ fun ChatScreen(
                             } // close UserBubble SideEffect + UserMessageBubble block
                             is FlatChatItem.AssistantHeader -> {
                                 // [T-android-copy-reply] Whole-message copy.
-                                // The header item carries only a message id
-                                // (its equals/hashCode are on the streaming hot
-                                // path, so nothing heavy may live on it) — the
-                                // markdown is built lazily, inside the click,
-                                // from the live message list. Headers can be
-                                // deduped with a "#n" suffix, hence
-                                // substringBefore('#').
-                                val sourceMessage = messages.firstOrNull {
-                                    it.id == item.messageId.substringBefore('#')
-                                }
+                                // The markdown rides ON the item (built where the
+                                // item is built). vc61 looked the message up here
+                                // by id instead, missed, and silently rendered no
+                                // buttons at all.
                                 AssistantHeader(
-                                    onCopyMarkdown = sourceMessage?.let { msg ->
-                                        {
-                                            MarkdownClipboard.copyMarkdown(
-                                                context,
-                                                buildAssistantMessageMarkdown(msg),
-                                                "Reply",
-                                            )
-                                        }
+                                    onCopyMarkdown = {
+                                        MarkdownClipboard.copyMarkdown(
+                                            context,
+                                            item.messageMarkdown,
+                                            "Reply",
+                                        )
                                     },
-                                    onCopyPlain = sourceMessage?.let { msg ->
-                                        {
-                                            MarkdownClipboard.copyPlain(
-                                                context,
-                                                MarkdownClipboard.markdownToPlainText(
-                                                    buildAssistantMessageMarkdown(msg),
-                                                ),
-                                                "Reply",
-                                            )
-                                        }
+                                    onCopyPlain = {
+                                        MarkdownClipboard.copyPlain(
+                                            context,
+                                            MarkdownClipboard.markdownToPlainText(
+                                                item.messageMarkdown,
+                                            ),
+                                            "Reply",
+                                        )
                                     },
                                 )
                             }

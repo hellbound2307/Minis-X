@@ -341,9 +341,36 @@ internal sealed class FlatChatItem {
         override fun hashCode(): Int = message.hashCode() * 31 + precededByUser.hashCode()
     }
 
-    data class AssistantHeader(val messageId: String) : FlatChatItem() {
+    /**
+     * [T-android-copy-reply] Carries the message's full markdown so the
+     * whole-reply copy actions do not need a runtime lookup.
+     *
+     * vc61 passed only the id and resolved the message from the live list at
+     * click time — a perf-motivated shortcut that FAILED SILENTLY: the lookup
+     * missed (the render list and the looked-up list are not the same object
+     * under the streaming overlay), both callbacks came back null, and the
+     * buttons simply never composed. Nothing crashed and nothing logged. The
+     * markdown is now built where the item is built, next to the joinedMarkdown
+     * that was already being computed there.
+     *
+     * `equals` is hand-rolled for the same reason as [AssistantText]: this sits
+     * on the per-chunk streaming rebuild path, so it compares the long string by
+     * LENGTH, never char-by-char.
+     */
+    data class AssistantHeader(
+        val messageId: String,
+        /** Full markdown: text blocks in order + blockquoted tool lines. */
+        val messageMarkdown: String = "",
+    ) : FlatChatItem() {
         override val key = "header:$messageId"
         override val contentType = "header"
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is AssistantHeader) return false
+            return messageId == other.messageId &&
+                messageMarkdown.length == other.messageMarkdown.length
+        }
+        override fun hashCode(): Int = messageId.hashCode() * 31 + messageMarkdown.length
     }
 
     /**
@@ -645,7 +672,14 @@ internal fun buildFlatChatItems(
             .firstOrNull { it.role != "system" }
         val isResumeContinuation = prevNonSystem?.role == "assistant"
         if (!isSystem && !isResumeContinuation) {
-            out.add(dedupe(FlatChatItem.AssistantHeader(message.id)))
+            out.add(
+                dedupe(
+                    FlatChatItem.AssistantHeader(
+                        messageId = message.id,
+                        messageMarkdown = buildAssistantMessageMarkdown(message),
+                    )
+                )
+            )
         }
 
         val blocks = message.toolBlocks

@@ -339,22 +339,22 @@ internal fun AssistantHeader(
         if (onCopyMarkdown != null || onCopyPlain != null) {
             Spacer(modifier = Modifier.weight(1f))
             if (onCopyMarkdown != null) {
-                IconButton(onClick = onCopyMarkdown, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onCopyMarkdown, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = stringResource(R.string.copy_reply_markdown),
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
             if (onCopyPlain != null) {
-                IconButton(onClick = onCopyPlain, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onCopyPlain, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = Icons.Default.TextFields,
                         contentDescription = stringResource(R.string.copy_reply_text),
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
