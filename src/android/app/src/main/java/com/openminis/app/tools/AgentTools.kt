@@ -97,7 +97,7 @@ object AgentTools {
                 "The value is written app-side and is NEVER readable back — not by you, not in any " +
                 "tool result. Use it for tokens, SSH keys and credentials you obtain mid-task. " +
                 "Set also_env=true to also project it into the environment variables the sandbox " +
-                "injects, so $KEY works in shells without the value ever entering the transcript. " +
+                "injects, so \$KEY works in shells without the value ever entering the transcript. " +
                 "Not available in an isolated season.",
             parameters = mapOf(
                 "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
