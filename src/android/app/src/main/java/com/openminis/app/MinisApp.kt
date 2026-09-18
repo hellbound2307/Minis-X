@@ -280,6 +280,11 @@ class MinisApp : Application(), ImageLoaderFactory {
         // persisted per-install id store before any request can be built.
         com.openminis.app.provider.OpencodeSession.prime(this)
 
+        // [T-android-vault] Agent-writable secret store. App-side, so it survives
+        // a sandbox reset — the gap it closes is that the agent had no write path
+        // for a credential it obtained mid-task.
+        com.openminis.app.data.VaultStore.prime(this)
+
         com.openminis.app.events.AgentRunRecorder.prime(this)
 
         // [T-codex-fast-mode] Capture the app context + warm the Fast Mode

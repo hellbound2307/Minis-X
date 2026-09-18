@@ -9731,6 +9731,85 @@ class ChatViewModel(
                 context = context,
             )
             // [T-android-event-bus] Rules that wake the agent on events.
+            "vault_set", "vault_list", "vault_get", "vault_delete", "vault_to_env" -> {
+                // [T-android-vault] Values go IN and never come back out. Every
+                // branch below returns metadata only; there is deliberately no
+                // path that echoes a stored value into the transcript.
+                val refusal = com.openminis.app.data.VaultStore.refusalReason()
+                if (refusal != null) {
+                    ToolExecutionResult(refusal, false)
+                } else {
+                    val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }
+                    val key = a.optString("key", "").trim()
+                    when (name) {
+                        "vault_set" -> {
+                            val value = a.optString("value", "")
+                            val ok = com.openminis.app.data.VaultStore.set(
+                                key = key,
+                                value = value,
+                                note = a.optString("note", ""),
+                            )
+                            if (!ok) {
+                                ToolExecutionResult(
+                                    "Could not store '$key'. Keys are uppercased and must match " +
+                                        "[A-Za-z][A-Za-z0-9_.-]*; the value must be non-empty.",
+                                    false,
+                                )
+                            } else {
+                                val projected = if (a.optBoolean("also_env", false)) {
+                                    "\n" + com.openminis.app.data.VaultStore.projectToEnv(
+                                        key, com.openminis.app.sandbox.ExecutionCoordinator.envVarRepository,
+                                    )
+                                } else {
+                                    ""
+                                }
+                                ToolExecutionResult(
+                                    "Stored '$key' in the vault (${value.length} chars). " +
+                                        "The value will not be shown again.$projected",
+                                    true,
+                                )
+                            }
+                        }
+                        "vault_list" -> {
+                            val entries = com.openminis.app.data.VaultStore.list()
+                            ToolExecutionResult(
+                                if (entries.isEmpty()) "Vault is empty."
+                                else entries.joinToString("\n") { e ->
+                                    "${e.key} — ${e.note.ifBlank { "(no note)" }} · " +
+                                        "${e.valueLength} chars · updated " +
+                                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                                            .format(java.util.Date(e.updatedAt))
+                                },
+                                true,
+                            )
+                        }
+                        "vault_get" -> {
+                            val e = com.openminis.app.data.VaultStore.list().firstOrNull { it.key == key.uppercase() }
+                            ToolExecutionResult(
+                                if (e == null) "No vault entry named '${key.uppercase()}'."
+                                else "${e.key} — ${e.note.ifBlank { "(no note)" }} · " +
+                                    com.openminis.app.data.VaultStore.masked(e),
+                                e != null,
+                            )
+                        }
+                        "vault_delete" -> {
+                            val ok = com.openminis.app.data.VaultStore.delete(key)
+                            ToolExecutionResult(
+                                if (ok) "Deleted vault entry '${key.uppercase()}'." else "No such entry: $key",
+                                ok,
+                            )
+                        }
+                        else -> { // vault_to_env
+                            ToolExecutionResult(
+                                com.openminis.app.data.VaultStore.projectToEnv(
+                                    key, com.openminis.app.sandbox.ExecutionCoordinator.envVarRepository,
+                                ),
+                                true,
+                            )
+                        }
+                    }
+                }
+            }
             "event_rule_set" -> {
                 val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }
                 val match = LinkedHashMap<String, String>()

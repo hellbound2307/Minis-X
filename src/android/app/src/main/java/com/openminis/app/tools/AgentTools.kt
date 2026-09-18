@@ -77,6 +77,7 @@ object AgentTools {
         // via customPyTools above.
         add(com.openminis.app.tools.PyMetaTools.definition())
         // [T-android-event-bus] Rules that wake the agent on events.
+        vaultDefinitions().forEach { add(it) }
         eventRuleSetDefinition().forEach { add(it) }
         // [T-android-projects] Persistent project workspaces.
         projectDefinitions().forEach { add(it) }
@@ -88,6 +89,67 @@ object AgentTools {
     }
 
     // [T-android-event-bus]
+    // [T-android-vault]
+    private fun vaultDefinitions() = listOf(
+        AgentToolDefinition(
+            name = "vault_set",
+            description = "Store a secret in the encrypted vault so it survives a sandbox reset. " +
+                "The value is written app-side and is NEVER readable back — not by you, not in any " +
+                "tool result. Use it for tokens, SSH keys and credentials you obtain mid-task. " +
+                "Set also_env=true to also project it into the environment variables the sandbox " +
+                "injects, so $KEY works in shells without the value ever entering the transcript. " +
+                "Not available in an isolated season.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "key" to AgentToolParam("string", "Uppercase name, e.g. GITHUB_TOKEN."),
+                "value" to AgentToolParam("string", "The secret value. It will not be echoed back."),
+                "note" to AgentToolParam("string", "Optional description of what this is for."),
+                "also_env" to AgentToolParam("boolean", "Also project into the sandbox environment (default false)."),
+            ),
+            required = listOf("tool_title", "key", "value"),
+            propertyOrdering = listOf("tool_title", "key", "value", "note", "also_env"),
+        ),
+        AgentToolDefinition(
+            name = "vault_list",
+            description = "List vault entries: key, note, timestamps and value length. Never returns values.",
+            parameters = mapOf("tool_title" to AgentToolParam("string", "A concise 5-10 word summary.")),
+            required = listOf("tool_title"),
+            propertyOrdering = listOf("tool_title"),
+        ),
+        AgentToolDefinition(
+            name = "vault_get",
+            description = "Describe one vault entry (key, note, length, masked tail). Returns NO secret " +
+                "material — this exists so you can check an entry is present, not to read it.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "key" to AgentToolParam("string", "The entry name."),
+            ),
+            required = listOf("tool_title", "key"),
+            propertyOrdering = listOf("tool_title", "key"),
+        ),
+        AgentToolDefinition(
+            name = "vault_delete",
+            description = "Delete a vault entry.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "key" to AgentToolParam("string", "The entry name."),
+            ),
+            required = listOf("tool_title", "key"),
+            propertyOrdering = listOf("tool_title", "key"),
+        ),
+        AgentToolDefinition(
+            name = "vault_to_env",
+            description = "Project a vault entry into the environment variables the sandbox injects, " +
+                "without revealing the value. This is the restore path after a sandbox reset.",
+            parameters = mapOf(
+                "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
+                "key" to AgentToolParam("string", "The vault entry to project."),
+            ),
+            required = listOf("tool_title", "key"),
+            propertyOrdering = listOf("tool_title", "key"),
+        ),
+    )
+
     private fun eventRuleSetDefinition() = listOf(
         AgentToolDefinition(
             name = "event_rule_set",
