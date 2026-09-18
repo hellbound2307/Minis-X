@@ -1645,7 +1645,8 @@ class ChatViewModel(
         // launch by MinisApp); reading via a closure means the index sees
         // an up-to-date snapshot on every rescan without a manual refresh.
         FileMentionIndex(
-            filesDir = java.io.File(context.applicationContext.filesDir, "minis-global"),
+            filesDir = com.openminis.app.data.SeasonStore
+                .activeGlobalBase(context.applicationContext),
             mountsProvider = {
                 com.openminis.app.sandbox.PRootKernel
                     .mountEntriesForIndex(context.applicationContext)

@@ -110,8 +110,13 @@ class SkillRepository(private val context: Context) {
         SkillDbHelper(context).writableDatabase
     }
 
+    // [T-android-seasons] Season-scoped: an isolated season must not inherit the
+    // main season's skills (nor their descriptions in the system prompt).
     private val skillsDir: File
-        get() = File(context.filesDir, "minis-global/skills")
+        get() = File(
+            com.openminis.app.data.SeasonStore.activeGlobalBase(context),
+            "skills",
+        )
 
     init {
         // [T-android-safemode-lateinit-crash-147] Never let a bad skill take

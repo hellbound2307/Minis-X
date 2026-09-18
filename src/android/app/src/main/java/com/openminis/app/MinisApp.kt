@@ -447,7 +447,9 @@ class MinisApp : Application(), ImageLoaderFactory {
         // breaks the Application and produces the GH#147 crash loop.
         skillRepository = SkillRepository(this)
         mcpRepository = MCPRepository(this)
-        memoryRepository = MemoryRepository(java.io.File(filesDir, "minis-global/memory"))
+        memoryRepository = MemoryRepository {
+            java.io.File(com.openminis.app.data.SeasonStore.activeGlobalBase(this), "memory")
+        }
         webAppShortcutRepository = WebAppShortcutRepository(database.webAppShortcutDao())
         // [T-py-meta-tools] Pytool registry — load-on-init so agent-minted
         // tools are callable from the first turn of any session. Fully

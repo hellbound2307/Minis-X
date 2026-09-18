@@ -43,7 +43,8 @@ class FileMentionIndex(
     private val cacheTtlMs: Long = DEFAULT_CACHE_TTL_MS,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
-    constructor(context: Context) : this(File(context.filesDir, "minis-global"))
+    constructor(context: Context) :
+        this(com.openminis.app.data.SeasonStore.activeGlobalBase(context))
 
     /**
      * Scope priorities — `order` doubles as the empty-query default sort key

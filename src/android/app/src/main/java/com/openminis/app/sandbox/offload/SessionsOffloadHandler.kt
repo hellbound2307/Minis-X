@@ -61,6 +61,29 @@ class SessionsOffloadHandler(
         }
 
         val sub = args.positional.firstOrNull() ?: "list"
+
+        // [T-android-seasons] SEASON GATE. This CLI reads the chat database,
+        // which is still shared across seasons (one Room DB — S2 in PLAN.md).
+        // Without this gate an "isolated" season could list, search and export
+        // every conversation the main season ever had, which is exactly the
+        // cross-season read isolation is supposed to prevent. Fail closed with
+        // a reason rather than returning an empty list: a silent empty result
+        // reads as "there is no history", which is a lie the agent would then
+        // reason from.
+        if (com.openminis.app.data.SeasonStore.isCurrentIsolated()) {
+            val err = errorEnvelope(
+                sub,
+                "SEASON_ISOLATED",
+                "Chat history is not available in an isolated season: the session " +
+                    "database is shared across seasons and is not yet partitioned. " +
+                    "Use the main season to read or export conversations.",
+            )
+            return NativeOffloadResult(
+                EXIT_INVALID_ARGS,
+                OffloadOutput.formatBody(err.toString(2), args) + "\n",
+            )
+        }
+
         return try {
             when (sub) {
                 "list" -> cmdList(args)

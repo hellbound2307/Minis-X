@@ -16,7 +16,23 @@ import java.util.Locale
  *   - loadGlobalMemoryFragment() / loadRecentDailyMemoryFragment(): emit
  *     two separate text blocks for the system prompt (mirrors iOS exactly)
  */
-class MemoryRepository(private val memoryDir: File) {
+/**
+ * [T-android-seasons] The memory directory is resolved through a PROVIDER, not
+ * captured once at startup.
+ *
+ * This was the leak that made an "isolated" season still recognise its operator:
+ * MinisApp passed `File(filesDir, "minis-global/memory")` at construction, so
+ * GLOBAL.md (the operator profile) and the recent daily logs were read from the
+ * MAIN season and injected into every system prompt — regardless of which season
+ * the session belonged to. Emptying /var/minis is meaningless if the prompt
+ * still carries the profile.
+ *
+ * Keeping `memoryDir` as a getter means every existing use site keeps working
+ * unchanged; only the constructor argument changes.
+ */
+class MemoryRepository(private val memoryDirProvider: () -> File) {
+    private val memoryDir: File get() = memoryDirProvider()
+
 
     companion object {
         private const val TAG = "MemoryRepository"
