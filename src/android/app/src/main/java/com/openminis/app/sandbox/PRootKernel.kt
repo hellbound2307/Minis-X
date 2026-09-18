@@ -348,7 +348,10 @@ object PRootKernel {
         // [T-android-mount-atomic-swap] Reconcile in ONE publish: drop stale
         // /var/minis/mounts/* keys and apply the desired set together, so a
         // concurrent reader never sees the mounts table mid-reconcile.
+        val stale: List<String>
         synchronized(mountLock) {
+            stale = bindMountsSnapshot.keys
+                .filter { it.startsWith(MOUNTS_LINUX_PREFIX) && it !in desired }
             val next = bindMountsSnapshot
                 .filterKeys { !(it.startsWith(MOUNTS_LINUX_PREFIX) && it !in desired) }
                 .toMutableMap()
