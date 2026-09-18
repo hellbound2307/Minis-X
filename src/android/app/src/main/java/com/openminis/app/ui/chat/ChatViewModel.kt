@@ -9744,8 +9744,13 @@ class ChatViewModel(
                     sessionId = a.optString("session_id", activeSessionId).ifBlank { activeSessionId },
                     prompt = a.optString("prompt", "An event occurred — review the payload and act."),
                     cooldownSeconds = a.optLong("cooldown_seconds", 60),
+                    intervalSeconds = a.optLong("interval_seconds", 0),
                 )
-                ToolExecutionResult("Event rule ${rule.id} set (type=${rule.eventType}, match=${rule.match}).", true)
+                ToolExecutionResult(
+                    "Event rule ${rule.id} set (type=${rule.eventType}, match=${rule.match}" +
+                        (if (rule.intervalSeconds > 0) ", every ${rule.intervalSeconds}s" else "") + ").",
+                    true,
+                )
             }
             "event_rule_list" -> {
                 val rules = com.openminis.app.events.EventBus.list(context)
@@ -9753,6 +9758,7 @@ class ChatViewModel(
                 else ToolExecutionResult(
                     rules.joinToString("\n") { r ->
                         "${r.id} — ${r.eventType} match=${r.match} → session ${r.sessionId.take(8)} " +
+                            (if (r.intervalSeconds > 0) "every ${r.intervalSeconds}s " else "") +
                             (if (r.enabled) "" else "[DISABLED]")
                     },
                     true,

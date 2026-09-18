@@ -51,6 +51,9 @@ object EventBus {
     private const val TAG = "EventBus"
     private const val DEFAULT_COOLDOWN_MS = 60_000L
 
+    /** [T-android-event-tick] Event type produced by the in-process ticker. */
+    const val TICK_TYPE = "tick"
+
     data class Rule(
         val id: String,
         val eventType: String,
@@ -59,6 +62,17 @@ object EventBus {
         val prompt: String,
         val cooldownSeconds: Long = 60,
         val enabled: Boolean = true,
+        /**
+         * [T-android-event-tick] Seconds between automatic fires, for
+         * `eventType == "tick"` rules. 0 = not a tick rule.
+         *
+         * This is the time source the event bus never had: rules could only be
+         * woken by a notification or an explicit event_emit, so any self-driven
+         * loop (watcher, sweep, daemon check-in) had to be built as a scheduled
+         * task or an external cron. A tick is the cheapest possible primitive —
+         * no new storage, no new dispatch path, just a clock in front of emit().
+         */
+        val intervalSeconds: Long = 0,
     )
 
     data class Event(val type: String, val payload: Map<String, String>)
@@ -90,6 +104,7 @@ object EventBus {
                         prompt = o.optString("prompt", ""),
                         cooldownSeconds = o.optLong("cooldownSeconds", 60),
                         enabled = o.optBoolean("enabled", true),
+                        intervalSeconds = o.optLong("intervalSeconds", 0),
                     ),
                 )
             }
@@ -111,7 +126,8 @@ object EventBus {
                     .put("sessionId", r.sessionId)
                     .put("prompt", r.prompt)
                     .put("cooldownSeconds", r.cooldownSeconds)
-                    .put("enabled", r.enabled),
+                    .put("enabled", r.enabled)
+                    .put("intervalSeconds", r.intervalSeconds),
             )
         }
         f.writeText(JSONObject().put("rules", arr).toString(2))
@@ -124,6 +140,7 @@ object EventBus {
         sessionId: String,
         prompt: String,
         cooldownSeconds: Long,
+        intervalSeconds: Long = 0,
     ): Rule {
         ensureLoaded(context)
         val rule = Rule(
@@ -133,6 +150,7 @@ object EventBus {
             sessionId = sessionId,
             prompt = prompt,
             cooldownSeconds = cooldownSeconds.coerceAtLeast(0),
+            intervalSeconds = intervalSeconds.coerceAtLeast(0),
         )
         rules.add(rule)
         save(context)
@@ -198,6 +216,41 @@ object EventBus {
             dispatched.add("${rule.id}: dispatched → session ${rule.sessionId.take(8)}")
         }
         return if (dispatched.isEmpty()) "No rules dispatched." else dispatched.joinToString("\n")
+    }
+
+    /**
+     * [T-android-event-tick] Fire every due tick rule.
+     *
+     * Driven by a process-scoped coroutine started in Application.onCreate, so
+     * this only runs while the app is alive — same limitation as every other
+     * in-process watcher here. A rule that MUST survive reboot or doze belongs
+     * in the scheduled-task path (AlarmManager + boot receiver), which already
+     * exists; tick is for loops that can tolerate an app restart.
+     *
+     * Due-ness is measured against [lastFired], the same map the cooldown uses,
+     * so an interval and a cooldown cannot disagree about whether a rule just
+     * ran. A cooldown longer than the interval wins, deliberately: it is the
+     * flood guard, and it is the more conservative of the two.
+     */
+    fun tickNow(context: Context) {
+        ensureLoaded(context)
+        val now = System.currentTimeMillis()
+        val due = rules.filter { r ->
+            r.enabled && r.eventType == TICK_TYPE && r.intervalSeconds > 0 &&
+                (now - (lastFired[r.id] ?: 0L)) >= r.intervalSeconds * 1000L
+        }
+        if (due.isEmpty()) return
+        emit(
+            context,
+            Event(
+                type = TICK_TYPE,
+                payload = mapOf(
+                    "intervalSeconds" to (due.first().intervalSeconds.toString()),
+                    "firedAt" to now.toString(),
+                    "dueRules" to due.size.toString(),
+                ),
+            ),
+        )
     }
 
     private fun matches(match: Map<String, String>, payload: Map<String, String>): Boolean {

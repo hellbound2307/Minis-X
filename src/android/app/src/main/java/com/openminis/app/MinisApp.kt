@@ -470,6 +470,22 @@ class MinisApp : Application(), ImageLoaderFactory {
         // late, non-UI subsystem from permanently locking the user out
         // of an app whose UI dependencies are in fact ready.
         subsystemsInitialized = true
+
+        // [T-android-event-tick] Process-scoped ticker for `tick` event rules.
+        // Started here (not in an Activity) so background/scheduled turns get it
+        // too; dies with the process, which is the documented contract — loops
+        // that must survive reboot belong in the AlarmManager scheduled-task
+        // path. 30s resolution: an interval is a cadence, not a deadline.
+        runCatching {
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            ).launch {
+                while (true) {
+                    kotlinx.coroutines.delay(30_000L)
+                    runCatching { com.openminis.app.events.EventBus.tickNow(this@MinisApp) }
+                }
+            }
+        }.onFailure { Log.w("MinisApp", "event ticker failed to start: ${it.message}") }
         } catch (t: Throwable) {
             // subsystemsInitialized stays false — MainActivity will show the
             // crash-share dialog rather than composing against unassigned

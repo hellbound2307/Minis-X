@@ -98,14 +98,15 @@ object AgentTools {
                 "with the event payload; cooldown prevents storm loops.",
             parameters = mapOf(
                 "tool_title" to AgentToolParam("string", "A concise 5-10 word summary."),
-                "event_type" to AgentToolParam("string", "Event type: 'notification' or 'custom'.", enumValues = listOf("notification", "custom")),
+                "event_type" to AgentToolParam("string", "Event type: 'notification', 'custom', or 'tick' (recurring timer — pair with interval_seconds).", enumValues = listOf("notification", "custom", "tick")),
                 "match" to AgentToolParam("string", "JSON object of field→matcher. Exact match by default; prefix '~' = contains (e.g. {\"app\":\"com.whatsapp\",\"title\":\"~boss\"})."),
                 "session_id" to AgentToolParam("string", "Target session id (a session that exists — use minis-sessions-cli to find one)."),
                 "prompt" to AgentToolParam("string", "Instruction prepended to the event payload (what the agent should do when it fires)."),
-                "cooldown_seconds" to AgentToolParam("integer", "Minimum seconds between dispatches of this rule (default 60)."),
+                "cooldown_seconds" to AgentToolParam("integer", "Minimum seconds between dispatches of this rule (default 60). If longer than interval_seconds, it wins — it is the flood guard."),
+                "interval_seconds" to AgentToolParam("integer", "For event_type='tick': fire every N seconds while the app is alive. Survives app restart only if re-armed; use a scheduled task when the loop must survive reboot or doze."),
             ),
             required = listOf("tool_title", "event_type", "session_id", "prompt"),
-            propertyOrdering = listOf("tool_title", "event_type", "match", "session_id", "prompt", "cooldown_seconds"),
+            propertyOrdering = listOf("tool_title", "event_type", "match", "session_id", "prompt", "cooldown_seconds", "interval_seconds"),
         ),
         AgentToolDefinition(
             name = "event_rule_list",
