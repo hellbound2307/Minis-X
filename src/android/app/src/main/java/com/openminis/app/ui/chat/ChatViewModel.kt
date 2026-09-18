@@ -1304,6 +1304,14 @@ class ChatViewModel(
     val agentRunId: String? get() = agentRun?.runId
 
     /**
+     * [T-android-run-recorder] Adopt a run opened by someone else (SubagentRunner
+     * opens a child's run at spawn so a tool-less subagent still leaves a log).
+     */
+    fun attachAgentRun(handle: com.openminis.app.events.AgentRunRecorder.Handle?) {
+        agentRun = handle
+    }
+
+    /**
      * Cached reference to the lazily-created [BrowserTabPool] so
      * [ensureSession] can re-point it at the real session id after a rename.
      * Read only through [browserTabPool]; the backing `by lazy` fills this in.

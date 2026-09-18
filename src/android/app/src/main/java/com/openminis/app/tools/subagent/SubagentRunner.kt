@@ -173,6 +173,14 @@ object SubagentRunner {
         @Volatile var store: ViewModelStore? = null,
         /** Guards [releaseRun] against the double-decrement of depth. */
         val released: AtomicBoolean = AtomicBoolean(false),
+        /**
+         * [T-android-run-recorder] This child's telemetry run. Opened AT SPAWN
+         * (not lazily on first tool call) so even a subagent that only thinks
+         * and answers leaves a run file linked to its parent — a tool-less
+         * child was invisible in the run tree, which is precisely the case
+         * where "what did it actually do?" gets asked.
+         */
+        @Volatile var runHandle: com.openminis.app.events.AgentRunRecorder.Handle? = null,
     )
 
     data class SubagentResult(
@@ -292,6 +300,10 @@ object SubagentRunner {
                 }
             run.finalStatus = result.status
             run.endedAtMs = System.currentTimeMillis()
+            // Close the child's telemetry run with its real outcome, so the
+            // JSONL ends with a meaningful status instead of the idle sweep's
+            // generic "idle".
+            run.runHandle?.close(result.status)
             deferred.complete(result)
             // [T-subagent-wire] UI wire: publish on completion (any terminal
             // state — completed/error/cancelled/timeout all land here).
@@ -419,8 +431,12 @@ object SubagentRunner {
         // lan_share) whose effects land in the MAIN session and confuse the
         // parent conversation.
         vm.isSubagentRun = true
-        // [T-android-run-recorder] Link this child's run to the spawner's.
+        // [T-android-run-recorder] Link this child's run to the spawner's, and
+        // open it now rather than waiting for the first tool call.
         vm.runParentId = parentRunId
+        run.runHandle = com.openminis.app.events.AgentRunRecorder
+            .openRun(run.sessionId, source = "subagent", parentRunId = parentRunId)
+            .also { vm.attachAgentRun(it) }
 
         // Provider readiness, resolved off-Main (the VM's resolver runs on
         // Main.immediate — waiting on Main here would deadlock it).
