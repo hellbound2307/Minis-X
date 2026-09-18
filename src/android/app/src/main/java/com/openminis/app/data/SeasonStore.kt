@@ -96,19 +96,27 @@ object SeasonStore {
             val obj = JSONObject(index.readText())
             val arr = obj.optJSONArray("seasons") ?: JSONArray()
             val loaded = mutableListOf(mainSeason())
+            // NOTE: no `continue`/`break` here. This whole body is inside an
+            // inline lambda (runCatching), and "break/continue in inline
+            // lambdas" only lands in Kotlin language version 2.2 — it compiled
+            // to a hard error on this toolchain (CI, vc62 build 3). Nested
+            // ifs cost nothing and do not depend on the language level.
             for (i in 0 until arr.length()) {
-                val s = arr.optJSONObject(i) ?: continue
-                val id = s.optString("id").ifBlank { continue }
-                if (id == MAIN_ID) continue
-                loaded.add(
-                    Season(
-                        id = id,
-                        name = s.optString("name").ifBlank { id },
-                        icon = s.optString("icon").ifBlank { "🌙" },
-                        isolated = s.optBoolean("isolated", true),
-                        createdAt = s.optLong("createdAt", 0L),
-                    )
-                )
+                val s = arr.optJSONObject(i)
+                if (s != null) {
+                    val id = s.optString("id")
+                    if (id.isNotBlank() && id != MAIN_ID) {
+                        loaded.add(
+                            Season(
+                                id = id,
+                                name = s.optString("name").ifBlank { id },
+                                icon = s.optString("icon").ifBlank { "🌙" },
+                                isolated = s.optBoolean("isolated", true),
+                                createdAt = s.optLong("createdAt", 0L),
+                            )
+                        )
+                    }
+                }
             }
             _seasons.value = loaded
             val currentId = obj.optString("current").ifBlank { MAIN_ID }
