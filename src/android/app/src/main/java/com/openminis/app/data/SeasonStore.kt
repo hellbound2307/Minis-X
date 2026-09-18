@@ -121,7 +121,7 @@ object SeasonStore {
     fun isCurrentIsolated(): Boolean = _current.value.isolated
 
     /**
-     * Global (`/var/minis/*`) base directory for the ACTIVE season. Every
+     * Global (`/var/minis/…`) base directory for the ACTIVE season. Every
      * consumer of the global namespace must resolve it through here — the
      * alternative (each call site doing `File(filesDir, "minis-global")`) is
      * how the mount lists drifted apart in the first place.
