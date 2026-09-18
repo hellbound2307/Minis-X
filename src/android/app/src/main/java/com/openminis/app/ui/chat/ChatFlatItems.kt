@@ -271,10 +271,45 @@ import com.openminis.app.ui.browser.BrowserSheet
 import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton
 
+/**
+ * [T-android-copy-reply] Full markdown of an assistant message, for the
+ * whole-reply copy actions on the speaker row.
+ *
+ * "Full reply" means everything the turn contains: every text block in its
+ * original order, then a collapsed list of the tools it called. Dropping the
+ * tool section would reproduce exactly the complaint that started this — a
+ * copy that silently loses part of what the message did. The tool lines are
+ * blockquoted so they stay visually distinct when pasted into a doc, and the
+ * two sections are separated by a rule.
+ *
+ * Deliberately NOT the same string as the per-fragment `messageMarkdown` used
+ * by the selection toolbar: that one is the text-only projection, which is the
+ * right thing when the user selected prose, and the wrong thing here.
+ */
+internal fun buildAssistantMessageMarkdown(message: ChatMessage): String {
+    val text = run {
+        val parts = message.toolBlocks
+            .filter { it.kind == "text" && it.content.isNotEmpty() }
+            .joinToString("\n\n") { it.content }
+        if (parts.isNotEmpty()) parts else message.content
+    }
+    val tools = message.toolBlocks.filter { it.kind == "tool_use" }
+    if (tools.isEmpty()) return text
+    val toolLines = tools.joinToString("\n") { block ->
+        val name = block.toolName.ifBlank { block.toolTitle.ifBlank { "tool" } }
+        val secs = if (block.durationMs > 0) {
+            " · " + String.format(java.util.Locale.US, "%.1fs", block.durationMs / 1000.0)
+        } else {
+            ""
+        }
+        "> $name$secs"
+    }
+    return if (text.isBlank()) toolLines else "$text\n\n---\n\n$toolLines"
+}
+
 internal sealed class FlatChatItem {
     abstract val key: String
     abstract val contentType: String
-
     /**
      * Cheap-equals — see [AssistantText]. User messages are short and don't
      * stream, but during a streaming overlay rebuild we still re-create the

@@ -1944,4 +1944,7 @@
     <!-- [T-android-compact-progress] Live status while a compaction runs. -->
     <string name="compact_progress">Compacting… %1$d s elapsed</string>
     <string name="compact_progress_split">Compacting… %1$d s · summarizing in segments (%2$d/%3$d)</string>
+    <!-- [T-android-copy-reply] Whole-message copy on the assistant speaker row. -->
+    <string name="copy_reply_markdown">Copy reply as Markdown</string>
+    <string name="copy_reply_text">Copy reply as plain text</string>
 </resources>

@@ -4118,7 +4118,41 @@ fun ChatScreen(
                                 },
                             )
                             } // close UserBubble SideEffect + UserMessageBubble block
-                            is FlatChatItem.AssistantHeader -> AssistantHeader()
+                            is FlatChatItem.AssistantHeader -> {
+                                // [T-android-copy-reply] Whole-message copy.
+                                // The header item carries only a message id
+                                // (its equals/hashCode are on the streaming hot
+                                // path, so nothing heavy may live on it) — the
+                                // markdown is built lazily, inside the click,
+                                // from the live message list. Headers can be
+                                // deduped with a "#n" suffix, hence
+                                // substringBefore('#').
+                                val sourceMessage = messages.firstOrNull {
+                                    it.id == item.messageId.substringBefore('#')
+                                }
+                                AssistantHeader(
+                                    onCopyMarkdown = sourceMessage?.let { msg ->
+                                        {
+                                            MarkdownClipboard.copyMarkdown(
+                                                context,
+                                                buildAssistantMessageMarkdown(msg),
+                                                "Reply",
+                                            )
+                                        }
+                                    },
+                                    onCopyPlain = sourceMessage?.let { msg ->
+                                        {
+                                            MarkdownClipboard.copyPlain(
+                                                context,
+                                                MarkdownClipboard.markdownToPlainText(
+                                                    buildAssistantMessageMarkdown(msg),
+                                                ),
+                                                "Reply",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
                             is FlatChatItem.AssistantText -> BoundsTrackedBlock(
                                 messageId = item.messageId,
                                 slotKey = "text:${item.block.id}",

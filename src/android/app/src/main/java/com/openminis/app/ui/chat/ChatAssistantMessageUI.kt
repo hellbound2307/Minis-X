@@ -276,7 +276,13 @@ import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton
 
 @Composable
-internal fun AssistantHeader() {
+internal fun AssistantHeader(
+    // [T-android-copy-reply] Whole-message copy actions. Both are optional so
+    // the legacy AssistantMessageView path (which passes nothing) keeps
+    // compiling and renders exactly as before.
+    onCopyMarkdown: (() -> Unit)? = null,
+    onCopyPlain: (() -> Unit)? = null,
+) {
     // [T-soul-md] Identity header = icon + SOUL.md-driven `name`.
     //
     // [T-android-soul-custom-icon] The icon is now the user-settable
@@ -318,6 +324,41 @@ internal fun AssistantHeader() {
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
+        // [T-android-copy-reply] Copy affordances on the speaker row itself.
+        //
+        // Why here and not in an overflow menu: the existing per-block
+        // "Copy details" (on tool pills) and the text-selection toolbar's
+        // "Copy Markdown" both require selecting or targeting a fragment. The
+        // user's complaint was precisely that the ASSISTANT message had no
+        // whole-message copy — they could only copy their own prompt. One
+        // always-visible button per turn removes the selection dance.
+        //
+        // Two actions, because they are genuinely different pastes:
+        //   Copy      → markdown (headings, code fences, lists intact)
+        //   Copy text → rendered plain text (for forms, chat boxes, search)
+        if (onCopyMarkdown != null || onCopyPlain != null) {
+            Spacer(modifier = Modifier.weight(1f))
+            if (onCopyMarkdown != null) {
+                IconButton(onClick = onCopyMarkdown, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = stringResource(R.string.copy_reply_markdown),
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (onCopyPlain != null) {
+                IconButton(onClick = onCopyPlain, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.TextFields,
+                        contentDescription = stringResource(R.string.copy_reply_text),
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 
