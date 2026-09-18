@@ -47,7 +47,40 @@ object PRootKernel {
     val customEnvironment: MutableMap<String, String> = mutableMapOf()
 
     /** Bind mounts: Linux path -> host filesystem path. */
-    val bindMounts: MutableMap<String, String> = linkedMapOf()
+    /**
+     * [T-android-mount-atomic-swap] The live mount map, published as an
+     * immutable snapshot.
+     *
+     * It used to be a plain LinkedHashMap mutated in place, which produced two
+     * distinct failures:
+     *
+     *  - A season switch did `clearBindMounts()` then re-registered. In that
+     *    window a concurrently-created shell built its PRoot `-b` argv from an
+     *    EMPTY map, so `/var/minis/**` resolved to the rootfs placeholders —
+     *    empty directories. Reads looked like "the data is gone" and writes
+     *    went into the rootfs, where the next rootfs reset would discard them.
+     *    Observed live: `/var/minis/shared/` listing as empty and then coming
+     *    back.
+     *  - Readers iterated a map that a writer was mutating, and
+     *    [resolveHostPath] used `bindMounts[key]!!` — a missing key during the
+     *    window was an NPE, not a miss.
+     *
+     * Now every mutation publishes a NEW map (copy-on-write, a dozen entries)
+     * and readers take one volatile snapshot. There is no window in which the
+     * map is empty or half-updated: a reader sees either the complete old set
+     * or the complete new one.
+     */
+    @Volatile
+    private var bindMountsSnapshot: Map<String, String> = emptyMap()
+
+    /** Snapshot of the current mounts. Never mutate the returned map. */
+    val bindMounts: Map<String, String> get() = bindMountsSnapshot
+
+    private val mountLock = Any()
+
+    private fun publish(entries: Map<String, String>) {
+        bindMountsSnapshot = java.util.concurrent.ConcurrentHashMap(entries)
+    }
 
     /**
      * Initialize the PRoot environment: install rootfs and proot binary.
@@ -182,7 +215,21 @@ object PRootKernel {
     }
 
     fun addBindMount(linuxPath: String, hostPath: String) {
-        bindMounts[linuxPath] = hostPath
+        synchronized(mountLock) {
+            publish(bindMountsSnapshot + (linuxPath to hostPath))
+        }
+    }
+
+    /**
+     * [T-android-mount-atomic-swap] Replace the WHOLE mount set in one publish.
+     *
+     * The season switch uses this instead of clear-then-rebuild so there is no
+     * instant at which the sandbox can see an empty mount table.
+     */
+    fun replaceBindMounts(entries: Map<String, String>) {
+        synchronized(mountLock) {
+            publish(entries)
+        }
     }
 
     /**
@@ -228,18 +275,27 @@ object PRootKernel {
         // mount lists from drifting apart — the bug class that shipped three
         // times before vc60.
         val globalBase = com.openminis.app.data.SeasonStore.activeGlobalBase(context)
+        // Build the complete set FIRST, publish once. Also drops stale keys from
+        // a previous season (same linux paths, different hosts) without ever
+        // leaving the table empty.
+        val entries = LinkedHashMap<String, String>()
         globalMounts.forEach { mount ->
             val hostDir = File(globalBase, mount.hostSubPath).also { it.mkdirs() }
-            bindMounts[mount.linuxPath] = hostDir.absolutePath
+            entries[mount.linuxPath] = hostDir.absolutePath
         }
+        replaceBindMounts(entries)
     }
 
     fun removeBindMount(linuxPath: String) {
-        bindMounts.remove(linuxPath)
+        synchronized(mountLock) {
+            publish(bindMountsSnapshot - linuxPath)
+        }
     }
 
     fun clearBindMounts() {
-        bindMounts.clear()
+        synchronized(mountLock) {
+            publish(emptyMap())
+        }
     }
 
     // ── User-mounted external folders (T219) ──────────────────────────────
@@ -289,15 +345,15 @@ object PRootKernel {
                 .toMap()
         }
 
-        // Remove stale /var/minis/mounts/* keys not in desired.
-        val stale = bindMounts.keys
-            .filter { it.startsWith(MOUNTS_LINUX_PREFIX) }
-            .filter { it !in desired }
-        for (key in stale) bindMounts.remove(key)
-
-        // Add or update.
-        for ((linuxPath, hostPath) in desired) {
-            bindMounts[linuxPath] = hostPath
+        // [T-android-mount-atomic-swap] Reconcile in ONE publish: drop stale
+        // /var/minis/mounts/* keys and apply the desired set together, so a
+        // concurrent reader never sees the mounts table mid-reconcile.
+        synchronized(mountLock) {
+            val next = bindMountsSnapshot
+                .filterKeys { !(it.startsWith(MOUNTS_LINUX_PREFIX) && it !in desired) }
+                .toMutableMap()
+            next.putAll(desired)
+            publish(next)
         }
 
         // T219-6: PRoot's `-b host:linux` requires the linux target to exist
@@ -737,7 +793,10 @@ object PRootKernel {
         val sorted = bindMounts.keys.sortedByDescending { it.length }
         for (mountPoint in sorted) {
             if (linuxPath == mountPoint || linuxPath.startsWith("$mountPoint/")) {
-                val hostBase = bindMounts[mountPoint]!!
+                // [T-android-mount-atomic-swap] Was `!!`: a key missing during
+                // a rebind window was an NPE rather than a miss. The snapshot is
+                // internally consistent, so this is now just belt-and-braces.
+                val hostBase = bindMounts[mountPoint] ?: continue
                 val relativePath = linuxPath.removePrefix(mountPoint).removePrefix("/")
                 return if (relativePath.isEmpty()) {
                     File(hostBase)

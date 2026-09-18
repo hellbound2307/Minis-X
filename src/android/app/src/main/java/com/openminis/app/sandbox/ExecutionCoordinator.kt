@@ -238,11 +238,29 @@ object ExecutionCoordinator {
      */
     fun onSeasonChanged(context: Context) {
         runCatching {
-            val ids = shells.keys.toList()
-            ids.forEach { sessionDidTerminate(it) }
-            PRootKernel.clearBindMounts()
+            // Order matters. Kill the shells that hold the OLD season's argv
+            // first, then publish the new mount set in a single atomic swap,
+            // then sweep once more for any shell that started mid-swap.
+            //
+            // What this deliberately does NOT do any more: clearBindMounts()
+            // followed by a rebuild. That left an empty mount table for the
+            // duration of the rebuild, and a shell created in that window saw
+            // rootfs placeholders instead of the real directories — reads
+            // looked like data loss and writes landed somewhere the next rootfs
+            // reset discards. It is the observed "shared/ went empty and came
+            // back" incident.
+            val first = shells.keys.toList()
+            first.forEach { sessionDidTerminate(it) }
+
             PRootKernel.registerGlobalBindMounts(context.applicationContext)
-            Log.i(TAG, "[seasons] rebound sandbox to season namespace; killed ${ids.size} shell(s)")
+
+            val second = shells.keys.toList()
+            second.forEach { sessionDidTerminate(it) }
+
+            Log.i(
+                TAG,
+                "[seasons] rebound sandbox atomically; killed ${first.size}+${second.size} shell(s)",
+            )
         }.onFailure { Log.w(TAG, "[seasons] rebind failed: ${it.message}") }
     }
 
