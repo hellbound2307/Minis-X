@@ -276,6 +276,10 @@ class MinisApp : Application(), ImageLoaderFactory {
         // unprimed store would silently mean "main".
         com.openminis.app.data.SeasonStore.prime(this)
 
+        // [T-android-opencode-session] Give the provider session header its
+        // persisted per-install id store before any request can be built.
+        com.openminis.app.provider.OpencodeSession.prime(this)
+
         com.openminis.app.events.AgentRunRecorder.prime(this)
 
         // [T-codex-fast-mode] Capture the app context + warm the Fast Mode

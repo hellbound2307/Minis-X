@@ -445,6 +445,12 @@ class OpenAIProvider private constructor(
         // a local proxy got reused on every retry (silent infinite hang).
         .connectionPool(com.openminis.app.network.NetworkMonitor.sharedLLMConnectionPool)
         .eventListenerFactory { OkHttpNetTraceListener() }
+        // [T-android-opencode-session] One chokepoint for x-opencode-session:
+        // the interceptor attaches it only when the request host is an OpenCode
+        // endpoint, so every request path through this client (chat, raw
+        // passthrough, Responses API, model listing) is covered without a
+        // per-site call that a future code path could forget.
+        .addInterceptor(com.openminis.app.provider.OpencodeSession.interceptor())
         .build()
 
     /** Detect OpenRouter base URL. */

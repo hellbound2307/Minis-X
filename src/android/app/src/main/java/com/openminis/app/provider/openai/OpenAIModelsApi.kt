@@ -16,7 +16,12 @@ import org.json.JSONObject
 
 object OpenAIModelsApi {
     private const val TAG = "OpenAIModelsApi"
-    private val client = OkHttpClient()
+    // [T-android-opencode-session] Model listing hits the same OpenCode
+    // endpoint as chat, so it needs the same header. Interceptor is host-gated,
+    // so nothing changes for every other provider.
+    private val client = OkHttpClient.Builder()
+        .addInterceptor(com.openminis.app.provider.OpencodeSession.interceptor())
+        .build()
     private val cache = ProviderModelsCache("openai")
 
     /**
