@@ -1947,4 +1947,17 @@
     <!-- [T-android-copy-reply] Whole-message copy on the assistant speaker row. -->
     <string name="copy_reply_markdown">Copy reply as Markdown</string>
     <string name="copy_reply_text">Copy reply as plain text</string>
+    <!-- [T-android-seasons] Settings → Seasons. -->
+    <string name="seasons_title">Seasons</string>
+    <string name="seasons_section_existing">Seasons</string>
+    <string name="seasons_section_new">New season</string>
+    <string name="seasons_mode_isolated">Fully isolated — own empty world</string>
+    <string name="seasons_mode_full">Full app access</string>
+    <string name="seasons_new_name_label">Name</string>
+    <string name="seasons_new_isolated_label">Fully isolated</string>
+    <string name="seasons_new_isolated_hint">Decided at creation and cannot be changed later — a season that already ran with full access has already read global memory into its history.</string>
+    <string name="seasons_create">Create season</string>
+    <string name="seasons_delete">Delete season</string>
+    <string name="seasons_delete_confirm">Delete \u201c%1$s\u201d and everything in its namespace? This cannot be undone.</string>
+    <string name="seasons_isolation_banner">An isolated season gets its own empty /var/minis namespace: no memory, skills, shared files, projects, run logs or plugin payloads from any other season, and its agent starts with a blank world.\n\nNOT isolated yet: the shared Alpine rootfs (/root, /tmp, installed packages), chats and messages, environment variables/secrets, browser cookies, and device-level tools (accessibility, notification access, Shizuku) which see the device rather than the app.</string>
 </resources>

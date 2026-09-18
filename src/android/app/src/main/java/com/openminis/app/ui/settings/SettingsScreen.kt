@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Construction
@@ -106,6 +107,7 @@ fun SettingsScreen(
     // T235: Shared Folders entry (Shared / Skills / Memory). Default no-op
     // for back-compat with callers wired before T235.
     onSharedFoldersClick: () -> Unit = {},
+    onSeasonsClick: () -> Unit = {},
     // T50: Background & Notifications screen (battery optimisation +
     // OEM autostart guidance). Default no-op so older callers/tests
     // don't need to be retrofitted.
@@ -250,6 +252,15 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_shared_folders),
                     subtitle = stringResource(R.string.settings_shared_folders_subtitle),
                     onClick = onSharedFoldersClick,
+                )
+                // [T-android-seasons] Isolated agent worlds. Placed with the
+                // storage/mounts cluster because that is what it scopes.
+                SettingsItem(
+                    icon = Icons.Outlined.Public,
+                    iconColor = Color(0xFF5856D6),
+                    title = stringResource(R.string.seasons_title),
+                    subtitle = stringResource(R.string.seasons_mode_isolated),
+                    onClick = onSeasonsClick,
                 )
                 SettingsItem(
                     icon = Icons.Outlined.FolderShared,

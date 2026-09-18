@@ -221,7 +221,13 @@ object PRootKernel {
      * booted or any shell to have started. Safe to call repeatedly.
      */
     fun registerGlobalBindMounts(context: Context) {
-        val globalBase = File(context.filesDir, "minis-global")
+        // [T-android-seasons] The global base is SEASON-dependent: the main
+        // season keeps the legacy files/minis-global layout, every other season
+        // gets its own namespace root. Resolving through SeasonStore here (and
+        // in ExecutionCoordinator.buildSessionBindMounts) is what keeps the two
+        // mount lists from drifting apart — the bug class that shipped three
+        // times before vc60.
+        val globalBase = com.openminis.app.data.SeasonStore.activeGlobalBase(context)
         globalMounts.forEach { mount ->
             val hostDir = File(globalBase, mount.hostSubPath).also { it.mkdirs() }
             bindMounts[mount.linuxPath] = hostDir.absolutePath

@@ -73,6 +73,10 @@ object AgentRunRecorder {
     @Volatile
     private var baseDir: File? = null
 
+    /** App context, kept so the runs root can be re-resolved per season. */
+    @Volatile
+    private var appContext: Context? = null
+
     /** Immutable step record. */
     data class Step(
         val seq: Int,
@@ -178,11 +182,26 @@ object AgentRunRecorder {
      * which is what we want in the ACRA reporter process.
      */
     fun prime(context: Context) {
-        runCatching {
-            val dir = File(context.filesDir, "minis-global/runs")
+        appContext = context.applicationContext
+        refreshBaseDir()
+    }
+
+    /**
+     * [T-android-seasons] Resolve the runs root for the ACTIVE season.
+     *
+     * Caching a single directory was fine while there was exactly one
+     * namespace; with seasons it would silently write an isolated season's
+     * telemetry into the main season's log — the precise leak seasons exist to
+     * prevent. Re-resolved on every run start instead (cheap: one File + mkdirs).
+     */
+    private fun refreshBaseDir(): File? {
+        val ctx = appContext ?: return baseDir
+        return runCatching {
+            val dir = File(com.openminis.app.data.SeasonStore.activeGlobalBase(ctx), "runs")
             if (!dir.exists()) dir.mkdirs()
             baseDir = dir
-        }.onFailure { Log.w(TAG, "prime failed: ${it.message}") }
+            dir
+        }.getOrNull() ?: baseDir
     }
 
     /** True when the recorder can persist. */
@@ -197,7 +216,7 @@ object AgentRunRecorder {
         source: String = "chat",
         parentRunId: String? = null,
     ): Handle? {
-        val root = baseDir ?: return null
+        val root = refreshBaseDir() ?: return null
         return runCatching {
             val now = System.currentTimeMillis()
             val id = "r_" + now.toString(36) + "_" + UUID.randomUUID().toString().take(4)

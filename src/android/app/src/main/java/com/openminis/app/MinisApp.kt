@@ -271,6 +271,11 @@ class MinisApp : Application(), ImageLoaderFactory {
         // AppLogger above — no I/O beyond an mkdir, and a no-op if the root
         // can't be resolved (the recorder then silently degrades rather than
         // throwing inside a tool call).
+        // [T-android-seasons] Resolve the active season BEFORE anything binds
+        // /var/minis — the mount lists are built from SeasonStore, so an
+        // unprimed store would silently mean "main".
+        com.openminis.app.data.SeasonStore.prime(this)
+
         com.openminis.app.events.AgentRunRecorder.prime(this)
 
         // [T-codex-fast-mode] Capture the app context + warm the Fast Mode

@@ -108,6 +108,8 @@ object Routes {
     const val AGENT_LOOP_MODELS = "agent_loop_models"
     const val MODEL_ENTRY_DETAIL = "model_entry/{instanceId}/{entryId}"
     const val ADD_CUSTOM_MODEL = "add_custom_model/{instanceId}"
+    /** [T-android-seasons] Isolated agent worlds. */
+    const val SEASONS = "seasons"
     const val STORAGE = "storage"
     const val BACKUP = "backup"
     const val TELEGRAM_REMOTE = "telegram_remote"
@@ -607,6 +609,13 @@ fun AppNavigation(
                 onAboutClick = { navController.safeNavigate(Routes.ABOUT) },
                 onMountedFoldersClick = { navController.safeNavigate(Routes.MOUNTED_FOLDERS) },
                 onSharedFoldersClick = { navController.safeNavigate(Routes.SHARED_FOLDERS) },
+                onSeasonsClick = { navController.safeNavigate(Routes.SEASONS) },
+            )
+        }
+
+        composable(Routes.SEASONS) {
+            com.openminis.app.ui.settings.SeasonsScreen(
+                onBack = { navController.safePopBackStack() },
             )
         }
 

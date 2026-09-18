@@ -196,7 +196,7 @@ object ExecutionCoordinator {
         // to the empty rootfs placeholder and the feature silently half-works.
         // That trap shipped three times (mcp-servers vc36, meta-tools vc43,
         // runs vc58) before this list was made single-source.
-        val globalBase = File(filesDir, "minis-global")
+        val globalBase = com.openminis.app.data.SeasonStore.activeGlobalBase(appContext)
         PRootKernel.globalMounts.forEach { globalMount ->
             val hostDir = File(globalBase, globalMount.hostSubPath).also { it.mkdirs() }
             mounts[globalMount.linuxPath] = hostDir.absolutePath
@@ -223,6 +223,29 @@ object ExecutionCoordinator {
     /**
      * Called when a session is closed. Stops and removes the shell.
      */
+    /**
+     * [T-android-seasons] Re-point the sandbox at the active season.
+     *
+     * PRoot's `-b` argv is fixed when a PersistentShell starts, so the mounts
+     * cannot change under a live shell: every shell has to go, then the bind
+     * map is rebuilt from the new season's namespace. The next `execute()` in
+     * any session lazily creates a fresh shell against the new mounts — no
+     * kernel restart, no rootfs copy.
+     *
+     * Note what this does NOT do: the shared rootfs (`/root`, `/tmp`, installed
+     * packages) is common to every season. That is staged for S3 and stated in
+     * the Seasons UI rather than implied away.
+     */
+    fun onSeasonChanged(context: Context) {
+        runCatching {
+            val ids = shells.keys.toList()
+            ids.forEach { sessionDidTerminate(it) }
+            PRootKernel.clearBindMounts()
+            PRootKernel.registerGlobalBindMounts(context.applicationContext)
+            Log.i(TAG, "[seasons] rebound sandbox to season namespace; killed ${ids.size} shell(s)")
+        }.onFailure { Log.w(TAG, "[seasons] rebind failed: ${it.message}") }
+    }
+
     fun sessionDidTerminate(sessionId: String) {
         val shell = shells.remove(sessionId)
         mutexes.remove(sessionId)
