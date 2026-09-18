@@ -56,7 +56,7 @@ object PRootKernel {
      *
      *  - A season switch did `clearBindMounts()` then re-registered. In that
      *    window a concurrently-created shell built its PRoot `-b` argv from an
-     *    EMPTY map, so `/var/minis/**` resolved to the rootfs placeholders —
+     *    EMPTY map, so `/var/minis/…` resolved to the rootfs placeholders —
      *    empty directories. Reads looked like "the data is gone" and writes
      *    went into the rootfs, where the next rootfs reset would discard them.
      *    Observed live: `/var/minis/shared/` listing as empty and then coming
