@@ -15,7 +15,7 @@ import java.util.UUID
  *
  * A season is a namespace for everything the agent considers "its own world":
  * memory, skills, shared, projects, runs, meta-tools, plugin payloads. Switching
- * seasons changes what `/var/minis/**` means inside the sandbox, so an isolated
+ * seasons changes what `/var/minis/…` means inside the sandbox, so an isolated
  * season's agent starts with an EMPTY world and cannot read the main one's.
  *
  * ## Isolation is chosen at creation and never flipped
@@ -28,7 +28,7 @@ import java.util.UUID
  * ## What this does and does not isolate (be honest)
  *
  * ISOLATED by this file:
- *  - the `/var/minis/**` namespace (memory, skills, shared, projects, runs,
+ *  - the `/var/minis/…` namespace (memory, skills, shared, projects, runs,
  *    meta-tools, plugin payloads) — separate host directories, separate binds.
  *
  * NOT isolated yet (deliberately staged, see PLAN.md):
