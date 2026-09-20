@@ -1,19 +1,78 @@
 # Minis X
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#building-from-source)
+[![Platforms](https://img.shields.io/badge/Platforms-Android-lightgrey.svg)](#building-from-source)
 
-**A private, on-device AI agent with a real computer to work with.**
+**A local-first AI agent runtime with a real Linux computer to work with.**
 
-Minis X is a fork of [OpenMinis](https://github.com/OpenMinis/OpenMinis). It runs
-leading models — Claude, GPT, Gemini and more — through your own keys or account
-sign-in, and gives them a full Linux shell on your device: package installs, real
-files, browser automation, extensible skills and persistent memory.
+Minis X turns an Android device into an extensible agent runtime. The agent gets a
+sandboxed Linux environment, real files, shell access, browser automation,
+persistent memory, skills, plugins and background jobs.
 
-The upstream product is intact. Everything this fork adds on top of it is below.
+**The runtime is local; inference is not necessarily.** Files, tools, the sandbox,
+memory, plugins, secrets and telemetry all live on the device. Model inference goes
+to the provider of your choice, through your own credentials — so "private" means
+your data and execution stay here, not that the model runs here.
 
-Installs side by side with upstream as `com.openminis.app.x`, so both can coexist.
+Minis X is a fork of [OpenMinis](https://github.com/OpenMinis/OpenMinis). The upstream
+agent experience is intact; what this fork adds is the runtime, isolation, security,
+observability and autonomy layers documented below.
+
+This fork builds and ships **Android** (`com.openminis.app.x`, installs side by side
+with upstream). The iOS sources are inherited from upstream and are not built here.
+
 Latest Android build: `1.19-x32` (`versionCode 69`).
+
+---
+
+## Why Minis X
+
+- **Real execution** — install packages, run programs, manipulate real files inside a
+  sandbox on the device, not a simulated tool surface.
+- **Isolated worlds** — Seasons give an agent its own memory, files, skills and
+  identity, with no path to any other season's.
+- **Observable execution** — every run produces inspectable telemetry, including
+  subagent trees and a live output tap.
+- **Extensible at runtime** — plugins and agent-written tools install without shipping
+  another APK.
+- **Secrets that survive** — a vault the agent can write to, whose values it can never
+  read back.
+- **Background autonomy** — scheduled tasks, event rules and watchers keep working
+  after the UI is closed.
+
+---
+
+## Architecture
+
+```
+                    ┌──────────────┐
+                    │    Model     │   ← remote, your credentials
+                    └──────┬───────┘
+  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  device boundary
+                    ┌──────▼───────┐
+                    │  Minis agent │   ← prompt, tools, context
+                    └──────┬───────┘
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+       Memory            Tools            Skills
+          │                │                │
+          └────────────────┼────────────────┘
+                           ▼
+                  ┌─────────────────┐
+                  │  Linux sandbox  │
+                  │ shell · files   │
+                  │ browser · jobs  │
+                  └─────────────────┘
+                           │
+                    ┌──────┴──────┐
+                    ▼             ▼
+                 Seasons       Telemetry
+                 isolation     run history
+```
+
+Everything below the device boundary is local. The boundary is the whole point of the
+secrets and isolation sections: what the agent *can reach* is decided here, not by the
+model's goodwill.
 
 ---
 
