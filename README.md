@@ -1,77 +1,95 @@
 # Minis X
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#beta-programme)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#building-from-source)
 
-**Your private, on-device AI agent — rebuilt.**
+**A private, on-device AI agent with a real computer to work with.**
 
-Minis X brings leading models — Claude, GPT, Gemini and more — into a native
-mobile experience, and gives them a real computer to work with: a full Linux
-shell running on your device, browser automation, extensible skills, persistent
-memory, and deep system integration.
+Minis X is a fork of [OpenMinis](https://github.com/OpenMinis/OpenMinis). It runs
+leading models — Claude, GPT, Gemini and more — through your own keys or account
+sign-in, and gives them a full Linux shell on your device: package installs, real
+files, browser automation, extensible skills and persistent memory.
 
-It is free, and fully open source.
+The upstream product is intact. Everything this fork adds on top of it is below.
 
-**We believe that in the age of AI, technical design and code are no longer
-where a product's advantage lies. The best agent emerges from a tight feedback
-loop with the people who use it — their expectations and their reports are
-what converge on the product.**
+Installs side by side with upstream as `com.openminis.app.x`, so both can coexist.
+Latest Android build: `1.19-x32` (`versionCode 69`).
 
 ---
 
-## What it does
+## What Minis X adds over upstream OpenMinis
+
+All of it is in-tree: no external service, no paid tier, nothing leaving the device.
+
+### The APK becomes a platform
 
 | | |
 |---|---|
-| **Bring your own model** | Claude, GPT, Gemini and other providers, via your own API keys or account sign-in. |
-| **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
-| **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
-| **Browser automation** | The agent can browse and interact with the web on your behalf. |
-| **Skills & memory** | Extensible skills plus persistent memory across sessions. |
-| **Workspaces** | Organise work into separate contexts, addressable via `minis://workspace/`. |
-| **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
+| **Plugin kernel** | New tools are installed at runtime from a manifest + MCP server — no app update. Strict validation of declared permissions, filesystem scopes and network hosts; install hooks run inside the sandbox; uninstall is fully reversible and audited. |
+| **Marketplace** | Browse, inspect declared permissions, install by id. A **permission-diff gate** refuses an update that *expands* permissions, so a plugin cannot widen its own reach silently. |
+| **Netguard** | An `LD_PRELOAD` `connect()` guard, armed per plugin spawn. The manifest's host allowlist is enforced at the syscall, not by convention; violations are logged as `NETGUARD:BLOCK`. |
+| **Minted tools** | `py_meta_tools` lets the agent write a Python tool and call it **by name in the same conversation** — with a manager UI, per-tool timeout, enable toggle and code viewer. |
 
----
+### Isolation
 
-## What you can do with Minis X
+| | |
+|---|---|
+| **Seasons** | First-class isolated agent worlds. An isolated season gets its own empty `/var/minis` namespace — no memory, skills, shared files, projects, run logs or plugin payloads from any other season. The isolation level is fixed **at creation** and has no setter: a season that already ran with full access has pulled global memory into its own history, so a later flip would be theatre. |
+| **Season-scoped identity** | Memory (including `GLOBAL.md`), skills, the file-mention index and the documents provider all resolve through the active season. Emptying the sandbox is meaningless if the system prompt still carries the operator profile. |
+| **Fail-closed boundaries** | `minis-sessions-cli` and the vault refuse outright inside an isolated season, rather than returning an empty result — a silent empty answer reads as "there is no history", which the agent would then reason from. |
+| **Subagent context isolation** | Children see only their mission by default, never the parent transcript. |
 
-A few things people actually use it for:
+### Secrets
 
-- **Photograph a meal, log the nutrition** — Minis X identifies the dishes, estimates
-  calories and macros, and writes them to Apple Health.
-- **Wake up to your timeline** — Shortcuts triggers Minis X to fetch your X timeline,
-  summarise it, synthesise speech, and play it as your alarm.
-- **Turn group chatter into tasks** — pull messages from a Telegram group, extract
-  bugs and action items, deduplicate them, and file them into Apple Reminders.
-- **Mount your Obsidian vault** — research, clean up and write Markdown notes back
-  into the vault as a normal workspace.
-- **Share anything into a calendar event** — send a page or message to Minis X via the
-  iOS Share Sheet and it creates the event, time and place included.
+| | |
+|---|---|
+| **Vault** | An agent-writable encrypted store that survives a sandbox reset. Values are never readable back — no tool returns one, by construction rather than by convention. `vault_to_env` projects an entry into the environment the sandbox already injects, so a credential moves app-side → shell env **without ever crossing the transcript**. |
 
----
+### Observability — the agent can see its own work
 
-## Skills
+| | |
+|---|---|
+| **Run telemetry** | Every tool call is recorded to an append-only JSONL per run: start/end, duration, status, exit code, byte counts, and a **redacted** argument digest. One run per `ChatViewModel`, so concurrent parent and subagent runs never interleave. |
+| **Run tree** | Subagent runs are linked to their spawner via `parentRunId`, and open **at spawn** — so even a child that only thinks and answers leaves a log. |
+| **Live output tap** | Shell stdout is streamed into the run log (throttled) and the HUD, so a long build stops being a black box. |
+| **Self-inspection** | `files/minis-global/runs` is bound into the sandbox at `/var/minis/runs`, so the agent can read back its own telemetry — tail a build, answer "how long did step 3 take", diff two runs. |
 
-A **skill** is a folder with a `SKILL.md` file — instructions, and optionally scripts,
-references and assets — that the agent loads on demand when a request matches it.
-Metadata stays in context for triggering; the body and bundled resources load only
-when the skill is actually used.
+### Hardening (from a security audit of the fork)
 
-Minis X has its own tool system, but it does not require skills written specifically
-for it: **skills built for Claude, Codex, OpenClaw or Hermes Agent generally run in
-Minis X as-is.** Skills that have been adapted to Minis X' tools simply run better —
-they can reach the Linux shell, device integrations and native offloads directly.
+| | |
+|---|---|
+| **Tool permissions** | Allow / Ask / Not-allowed per core agent tool, with background heads-up confirmation. |
+| **SSRF filter** | `web_fetch` checks every resolved address, fail-closed. |
+| **Context overflow** | Provider-specific overflow classifier with compact-and-retry recovery. |
+| **Resource guards** | An address-space (`RLIMIT_AS`) guard on every shell command and detached job, plus leaves-first timeout kills — one greedy process can no longer wedge the sandbox. |
+| **Memory hygiene** | A dream prune pass, plus a gardener that promotes journal entries to the wiki with a **user-always-wins** rule. |
 
----
+### Autonomy
 
-## Beta programme
+| | |
+|---|---|
+| **Scheduled tasks** | AlarmManager-backed (`setExactAndAllowWhileIdle`), re-registered on boot, able to append into an existing session rather than only starting a new one. |
+| **Event bus** | Rules that wake the agent on a notification, an emitted event, or a **tick** — the interval source that lets a rule drive its own loop. |
+| **Background survival** | An explicit keep-alive mode with a persistent notification, so watchers and jobs outlive the app being closed. |
 
-App Store releases can lag behind: every update waits on review, and we hold
-builds back when stability warrants it. The TestFlight build is where fixes
-and new features land first.
+### Build & developer tooling
 
-On Android, the [releases page](https://github.com/hellbound2307/Minis-X/releases)
-always carries the latest APK.
+- **CI unbroken and self-checking.** The upstream `android-actions/setup-android@v3`
+  step now fails (it runs `sdkmanager tools`, a package that no longer exists in
+  cmdline-tools 16.0) — replaced with a direct export of the runner's SDK and
+  licence acceptance before `--install`.
+- **`scripts/kotlin-lint.py`** — a pre-push gate for the traps that a compiler catches
+  in a second but CI catches in 25 minutes: `/*` nested inside a block comment, and
+  control flow inside an inline lambda. Zero false positives on this codebase.
+- **`docs/PLAN.md`** — the platform roadmap (observability, portability, runtime
+  upgrades, mobile survival) and the **clone-test contract**: install on a new device,
+  restore from one code, and be functionally identical without re-entering eleven keys.
+
+### Versioning
+
+`vc` is the Android `versionCode`; `x` is the fork build counter. Upstream 1.13 →
+fork `1.13-x1` … `1.16-x5` → Minis X `1.17-x1` … present. Read the `VERSION` constant
+in the worker/app rather than trusting commit messages, which are not always accurate.
 
 ---
 
@@ -87,7 +105,7 @@ The short version:
 
 ```sh
 git clone --recurse-submodules https://github.com/hellbound2307/Minis-X.git
-cd Minis X
+cd Minis-X
 
 # iOS  — order matters: FFmpeg links against LAME
 ./deps/build_lame.sh && ./deps/build_ffmpeg.sh
