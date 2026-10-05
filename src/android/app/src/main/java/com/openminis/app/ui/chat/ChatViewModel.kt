@@ -6548,12 +6548,8 @@ class ChatViewModel(
         // The buffer is cleared where the mediaRefs are actually written, not
         // here — clearing at this point would strip the content out from under
         // a send that then bails on the context-check paths below.
-        val trimmed = text.trim()
-        // While streaming, enqueue instead of silently dropping (iOS: send vs enqueuePrompt).
-        if (_isStreaming.value) {
-            enqueuePrompt(text)
-            return
-        }
+        
+        // --- REST OF ORIGINAL LOOP (TO BE MOVED TO DAEMON LATER) ---
         // T180: allow attachments-only sends (no caption). Mirrors iOS, where
         // an empty text + non-empty attachments still produces a valid user
         // message. Without this an image-only "look at this" send dropped.
