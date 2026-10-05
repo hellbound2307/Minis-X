@@ -6520,7 +6520,7 @@ class ChatViewModel(
         // Delegate execution to the persistent background daemon
         com.openminis.app.core.daemon.DaemonClient.startRun(
             context = context,
-            sessionId = sessionId,
+            sessionId = activeSessionId,
             prompt = text
         )
         
@@ -12143,7 +12143,7 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
 
     fun cancelStream() {
         // --- GOD-TIER DAEMON INJECTION ---
-        com.openminis.app.core.daemon.DaemonClient.stopRun(context, sessionId)
+        com.openminis.app.core.daemon.DaemonClient.stopRun(context, activeSessionId)
         // --- END DAEMON INJECTION ---
         
         AppLogger.info(TAG_STREAM, "cancelStream invoked _isStreaming=false (sid=$activeSessionId)")

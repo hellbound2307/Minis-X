@@ -36,10 +36,10 @@ class DaemonLLMRunner @Inject constructor(
     suspend fun executeRun(runId: RunId, sessionId: String, prompt: String) {
         try {
             // 1. Fetch historical context from SQLite
-            val history = chatRepository.getMessagesForSession(sessionId)
+            // val history = chatRepository.getMessagesForSession(sessionId)
             
             // 2. Fetch the active LLM provider
-            val provider = providerRepository.getActiveProvider() ?: throw IllegalStateException("No active provider")
+            // val provider = providerRepository.getActiveProvider() ?: throw IllegalStateException("No active provider")
             
             // 3. Initiate the LLM stream
             // In a full implementation, this hooks into the Provider's streaming interface
