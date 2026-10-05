@@ -451,6 +451,12 @@
             </intent-filter>
         </activity>
 
+        <!-- God-Tier Agent Daemon Service -->
+        <service
+            android:name=".core.daemon.AgentDaemonService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
         <!-- Agent foreground service -->
         <!-- T-android-fgs-timeout-crash: type=mediaPlayback to escape the
              dataSync 6h cap. See FOREGROUND_SERVICE_MEDIA_PLAYBACK

@@ -6516,6 +6516,22 @@ class ChatViewModel(
      *   the ASK_USER dialog branch is downgraded to silent compact-and-send.
      */
     private fun sendMessage(text: String, skipContextCheck: Boolean, headless: Boolean = false) {
+        // --- GOD-TIER DAEMON INJECTION ---
+        // Delegate execution to the persistent background daemon
+        com.openminis.app.core.daemon.DaemonClient.startRun(
+            context = context,
+            sessionId = sessionId,
+            prompt = text
+        )
+        
+        // Still update local UI state so the chat bubble appears
+        val trimmed = text.trim()
+        if (_isStreaming.value) {
+            enqueuePrompt(text)
+            return
+        }
+        // --- END DAEMON INJECTION ---
+        
         // [T-android-paste-mediaref] `[Pasted#N]` markers are NOT expanded here
         // any more.
         //
@@ -12126,6 +12142,10 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
     }
 
     fun cancelStream() {
+        // --- GOD-TIER DAEMON INJECTION ---
+        com.openminis.app.core.daemon.DaemonClient.stopRun(context, sessionId)
+        // --- END DAEMON INJECTION ---
+        
         AppLogger.info(TAG_STREAM, "cancelStream invoked _isStreaming=false (sid=$activeSessionId)")
         // [T-android-run-recorder] A user-stopped turn is still a finished run:
         // close it here so the JSONL gets an honest `run_end` instead of
