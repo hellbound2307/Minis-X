@@ -3,7 +3,6 @@ package com.openminis.app.core.daemon
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +11,7 @@ import com.openminis.app.core.execution.RunRegistry
 import com.openminis.app.core.execution.RunId
 import com.openminis.app.core.execution.RunStatus
 import javax.inject.Inject
+import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * The God-Tier Agent Daemon.
