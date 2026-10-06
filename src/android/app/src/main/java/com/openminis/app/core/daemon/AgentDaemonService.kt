@@ -3,6 +3,7 @@ package com.openminis.app.core.daemon
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +20,7 @@ import javax.inject.Inject
  * It holds a partial wakelock and survives the UI being backgrounded or destroyed.
  * All shell commands, network sweeps, and LLM reasoning loops run HERE.
  */
+@AndroidEntryPoint
 class AgentDaemonService : Service() {
 
     private val serviceJob = SupervisorJob()
